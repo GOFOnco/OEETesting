@@ -4,13 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OEE Manufacturing System v31</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Replace CDN with local Tailwind CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
         body {
             box-sizing: border-box;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
         }
         
         .pulse-red {
@@ -237,10 +239,41 @@
                 padding: 1rem;
             }
         }
+        
+        /* Hide ODT chart container if not present */
+        #odt-chart-container {
+            display: none;
+        }
+        
+        .connection-status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .connection-status.connected {
+            background-color: #10b981;
+            color: white;
+        }
+        
+        .connection-status.disconnected {
+            background-color: #ef4444;
+            color: white;
+        }
     </style>
  </head>
- <body class="min-h-full">
-  <div id="app" class="min-h-full pb-8"><!-- Header -->
+ <body class="min-h-screen">
+  <!-- Connection Status Indicator -->
+  <div id="connection-status" class="connection-status disconnected" style="display: none;">
+    🔴 Disconnected
+  </div>
+  
+  <div id="app" class="min-h-screen pb-8"><!-- Header -->
    <header class="glass-card mb-6 animate-fade-in" style="border-radius: 0;">
     <div class="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-8">
      <div class="flex items-center justify-between">
@@ -323,22 +356,28 @@
         <canvas id="apq-chart"></canvas>
        </div>
       </div>
-      <div class="chart-card">
+      <div class="chart-card" id="line-stop-mesin-container">
        <h3 class="text-lg font-semibold text-gray-700 mb-4">🔴 Line Stop Mesin (Top 10)</h3>
        <div class="chart-container">
         <canvas id="line-stop-mesin-chart"></canvas>
        </div>
       </div>
-      <div class="chart-card">
+      <div class="chart-card" id="line-stop-non-mesin-container">
        <h3 class="text-lg font-semibold text-gray-700 mb-4">🟡 Line Stop Non Mesin (Top 10)</h3>
        <div class="chart-container">
         <canvas id="line-stop-non-mesin-chart"></canvas>
        </div>
       </div>
-      <div class="chart-card">
+      <div class="chart-card" id="minor-stop-container">
        <h3 class="text-lg font-semibold text-gray-700 mb-4">⚠️ Minor Stop Analysis (Top 10)</h3>
        <div class="chart-container">
         <canvas id="minor-stop-chart"></canvas>
+       </div>
+      </div>
+      <div class="chart-card" id="odt-chart-container">
+       <h3 class="text-lg font-semibold text-gray-700 mb-4">⏱️ ODT Analysis (Top 10)</h3>
+       <div class="chart-container">
+        <canvas id="odt-chart"></canvas>
        </div>
       </div>
      </div><!-- Operator Performance Table -->
@@ -467,33 +506,33 @@
      <div id="machine-form-container" class="hidden mb-6">
       <form id="machine-form" class="space-y-6"><input type="hidden" id="edit-machine-id">
        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div><label class="block text-sm font-medium text-gray-700 mb-2">🏭 Machine Name</label> <input type="text" id="machine-name" required class="w-full input-field rounded-lg px-4 py-2">
+        <div><label class="block text-sm font-medium text-gray-700 mb-2">🏭 Machine Name</label> <input type="text" id="machine-name" required class="w-full input-field rounded-lg px-4 py-2 uppercase-input">
         </div>
         <div><label class="block text-sm font-medium text-gray-700 mb-2">📍 Area</label> <select id="machine-area" required class="w-full input-field rounded-lg px-4 py-2"> <option value="">Select Area</option> <option value="INJEKSI">INJEKSI</option> <option value="NON INJEKSI">NON INJEKSI</option> </select>
         </div>
         <div><label class="block text-sm font-medium text-gray-700 mb-2">🎯 Target per Minute</label> <input type="number" id="machine-target" required class="w-full input-field rounded-lg px-4 py-2">
         </div>
-        <div><label class="block text-sm font-medium text-gray-700 mb-2">👤 PIC</label> <input type="text" id="machine-pic" required class="w-full input-field rounded-lg px-4 py-2">
+        <div><label class="block text-sm font-medium text-gray-700 mb-2">👤 PIC</label> <input type="text" id="machine-pic" required class="w-full input-field rounded-lg px-4 py-2 uppercase-input">
         </div>
        </div><!-- ODT Items -->
        <div class="chart-card"><label class="block text-sm font-medium text-gray-700 mb-4">⏱️ ODT Items</label>
         <div id="odt-items" class="space-y-2">
-         <div class="flex flex-col md:flex-row space-y-2 md:space-y-0 md:space-x-2"><input type="text" placeholder="ODT Name" class="flex-1 input-field rounded-lg px-4 py-2 odt-name"> <input type="number" placeholder="Standard Time (min)" class="w-full md:w-32 input-field rounded-lg px-4 py-2 odt-time"> <button type="button" onclick="removeODTItem(this)" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-all">Remove</button>
+         <div class="flex flex-col md:flex-row space-y-2 md:space-y-0 md:space-x-2"><input type="text" placeholder="ODT Name" class="flex-1 input-field rounded-lg px-4 py-2 odt-name uppercase-input"> <input type="number" placeholder="Standard Time (min)" class="w-full md:w-32 input-field rounded-lg px-4 py-2 odt-time"> <button type="button" onclick="removeODTItem(this)" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-all">Remove</button>
          </div>
         </div><button type="button" onclick="addODTItem()" class="mt-3 btn-success text-white px-4 py-2 rounded-lg font-semibold"> ➕ Add ODT Item </button>
        </div><!-- Line Stop Categories -->
        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="chart-card"><label class="block text-sm font-medium text-gray-700 mb-4">🔴 Line Stop Mesin</label>
-         <div id="line-stop-mesin" class="space-y-2"><input type="text" placeholder="Line Stop Mesin Item" class="w-full input-field rounded-lg px-4 py-2 line-stop-mesin-item">
+         <div id="line-stop-mesin" class="space-y-2"><input type="text" placeholder="Line Stop Mesin Item" class="w-full input-field rounded-lg px-4 py-2 line-stop-mesin-item uppercase-input">
          </div><button type="button" onclick="addLineStopMesin()" class="mt-3 btn-success text-white px-4 py-2 rounded-lg font-semibold"> ➕ Add Item </button>
         </div>
         <div class="chart-card"><label class="block text-sm font-medium text-gray-700 mb-4">🟡 Line Stop Non Mesin</label>
-         <div id="line-stop-non-mesin" class="space-y-2"><input type="text" placeholder="Line Stop Non Mesin Item" class="w-full input-field rounded-lg px-4 py-2 line-stop-non-mesin-item">
+         <div id="line-stop-non-mesin" class="space-y-2"><input type="text" placeholder="Line Stop Non Mesin Item" class="w-full input-field rounded-lg px-4 py-2 line-stop-non-mesin-item uppercase-input">
          </div><button type="button" onclick="addLineStopNonMesin()" class="mt-3 btn-success text-white px-4 py-2 rounded-lg font-semibold"> ➕ Add Item </button>
         </div>
        </div><!-- Minor Stop Items -->
        <div class="chart-card"><label class="block text-sm font-medium text-gray-700 mb-4">⚠️ Minor Stop Items</label>
-        <div id="minor-stop-items" class="space-y-2"><input type="text" placeholder="Minor Stop Item" class="w-full input-field rounded-lg px-4 py-2 minor-stop-item">
+        <div id="minor-stop-items" class="space-y-2"><input type="text" placeholder="Minor Stop Item" class="w-full input-field rounded-lg px-4 py-2 minor-stop-item uppercase-input">
         </div><button type="button" onclick="addMinorStopItem()" class="mt-3 btn-success text-white px-4 py-2 rounded-lg font-semibold"> ➕ Add Item </button>
        </div>
        <div class="flex flex-col md:flex-row space-y-2 md:space-y-0 md:space-x-4"><button type="submit" id="machine-submit-btn" class="btn-primary text-white px-8 py-3 rounded-lg font-semibold"> 💾 Save Machine </button> <button type="button" onclick="cancelMachineForm()" class="bg-gray-500 text-white px-8 py-3 rounded-lg font-semibold hover:bg-gray-600 transition-all"> ❌ Cancel </button>
@@ -567,8 +606,8 @@
         const DASHBOARD_REFRESH_INTERVAL = 900000; // 15 minutes
 
         // Supabase Configuration
-        const SUPABASE_URL = 'https://zqkkboosrnolwqfvypxp.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpxa2tib29zcm5vbHdxZnZ5cHhwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc3NjM1ODgsImV4cCI6MjA4MzMzOTU4OH0.36C2wj1tey84sanCI_Hwr6-Rxs69t6eMsJOdv4usLo8';
+        const SUPABASE_URL = 'https://vspmleghlzxmhddoanbw.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZzcG1sZWdobHp4bWhkZG9hbmJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc5MjcxNDgsImV4cCI6MjA4MzUwMzE0OH0.0csh_5Z-FYro3rqyqlNtsEzkGJdga2iGw-I95loHhO8';
 
         // Make all functions globally accessible
         window.showSection = showSection;
@@ -599,11 +638,49 @@
 
         // Initialize application
         async function init() {
-            // Initialize Supabase
-            supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            console.log('Initializing OEE System...');
             
-            // Load data from Supabase
-            await loadDataFromSupabase();
+            // Update connection status
+            updateConnectionStatus('connecting');
+            
+            try {
+                // Initialize Supabase
+                console.log('Initializing Supabase client...');
+                supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+                    auth: {
+                        persistSession: false
+                    }
+                });
+                
+                // Test connection
+                console.log('Testing Supabase connection...');
+                const { data: testData, error: testError } = await supabaseClient
+                    .from('oee_data')
+                    .select('count', { count: 'exact', head: true });
+                
+                if (testError) {
+                    console.error('Supabase connection test failed:', testError);
+                    updateConnectionStatus('disconnected');
+                    showToast('Database connection failed. Using offline mode.', 'error');
+                    
+                    // Load from localStorage as fallback
+                    loadDataFromLocalStorage();
+                } else {
+                    console.log('Supabase connection successful!');
+                    updateConnectionStatus('connected');
+                    
+                    // Load data from Supabase
+                    await loadDataFromSupabase();
+                }
+                
+            } catch (error) {
+                console.error('Initialization error:', error);
+                updateConnectionStatus('disconnected');
+                showToast('Failed to initialize. Using offline mode.', 'error');
+                
+                // Load from localStorage as fallback
+                loadDataFromLocalStorage();
+            }
             
             // Set default dates
             const today = new Date().toISOString().split('T')[0];
@@ -629,6 +706,70 @@
             startDashboardAutoRefresh();
         }
 
+        // Update connection status indicator
+        function updateConnectionStatus(status) {
+            const statusElement = document.getElementById('connection-status');
+            statusElement.style.display = 'block';
+            
+            if (status === 'connected') {
+                statusElement.className = 'connection-status connected';
+                statusElement.innerHTML = '🟢 Connected';
+            } else if (status === 'connecting') {
+                statusElement.className = 'connection-status disconnected';
+                statusElement.innerHTML = '🟡 Connecting...';
+            } else {
+                statusElement.className = 'connection-status disconnected';
+                statusElement.innerHTML = '🔴 Offline Mode';
+            }
+        }
+
+        // Load data from localStorage (fallback)
+        function loadDataFromLocalStorage() {
+            console.log('Loading data from localStorage...');
+            
+            try {
+                // Load machines
+                const savedMachines = localStorage.getItem('oee_machines');
+                if (savedMachines) {
+                    machines = JSON.parse(savedMachines);
+                    console.log(`Loaded ${machines.length} machines from localStorage`);
+                }
+                
+                // Load OEE records
+                const savedRecords = localStorage.getItem('oee_records');
+                if (savedRecords) {
+                    oeeRecords = JSON.parse(savedRecords);
+                    console.log(`Loaded ${oeeRecords.length} records from localStorage`);
+                }
+                
+                // Update UI
+                updateMachineSelects();
+                updateMachineList();
+                updateDashboard();
+                updateOperatorFilter();
+                
+                showToast('Loaded data from local storage (offline mode)', 'info');
+                
+            } catch (error) {
+                console.error('Error loading from localStorage:', error);
+                showToast('Error loading local data', 'error');
+            }
+        }
+
+        // Save data to localStorage (fallback)
+        function saveToLocalStorage(type, data) {
+            try {
+                if (type === 'machine') {
+                    localStorage.setItem('oee_machines', JSON.stringify(machines));
+                } else if (type === 'oee_record') {
+                    localStorage.setItem('oee_records', JSON.stringify(oeeRecords));
+                }
+                console.log(`Saved ${type} to localStorage`);
+            } catch (error) {
+                console.error('Error saving to localStorage:', error);
+            }
+        }
+
         // Start dashboard auto-refresh
         function startDashboardAutoRefresh() {
             // Clear existing interval if any
@@ -641,51 +782,121 @@
                 // Only refresh if dashboard section is visible
                 const dashboardSection = document.getElementById('dashboard-section');
                 if (!dashboardSection.classList.contains('hidden')) {
-                    await loadDataFromSupabase();
-                    updateDashboard();
-                    showToast('Dashboard refreshed automatically', 'info');
+                    try {
+                        await loadDataFromSupabase();
+                        updateDashboard();
+                        showToast('Dashboard refreshed automatically', 'info');
+                    } catch (error) {
+                        console.warn('Auto-refresh failed:', error);
+                    }
                 }
             }, DASHBOARD_REFRESH_INTERVAL);
         }
 
         // Load data from Supabase
         async function loadDataFromSupabase() {
+            console.log('Loading data from Supabase...');
+            updateConnectionStatus('connecting');
+            
             try {
+                // First, try to get all data
                 const { data, error } = await supabaseClient
                     .from('oee_data')
                     .select('*')
                     .order('created_at', { ascending: false });
                 
-                if (error) throw error;
-                
-                if (data) {
-                    machines = data.filter(item => item.type === 'machine');
-                    oeeRecords = data.filter(item => item.type === 'oee_record');
-                    
-                    updateMachineSelects();
-                    updateMachineList();
-                    updateDashboard();
-                    updateOperatorFilter();
+                if (error) {
+                    console.error('Supabase query error:', error);
+                    throw error;
                 }
+                
+                console.log(`Received ${data ? data.length : 0} records from Supabase`);
+                
+                // Reset arrays
+                machines = [];
+                oeeRecords = [];
+                
+                // Separate data by type
+                if (data && data.length > 0) {
+                    data.forEach(item => {
+                        if (item.type === 'machine') {
+                            machines.push(item);
+                        } else if (item.type === 'oee_record') {
+                            oeeRecords.push(item);
+                        }
+                    });
+                    
+                    console.log(`Loaded ${machines.length} machines and ${oeeRecords.length} records`);
+                    
+                    // Save to localStorage as backup
+                    localStorage.setItem('oee_machines', JSON.stringify(machines));
+                    localStorage.setItem('oee_records', JSON.stringify(oeeRecords));
+                    
+                    updateConnectionStatus('connected');
+                } else {
+                    console.log('No data found in Supabase');
+                    updateConnectionStatus('connected');
+                }
+                
+                // Update UI
+                updateMachineSelects();
+                updateMachineList();
+                updateDashboard();
+                updateOperatorFilter();
+                
+                return true;
+                
             } catch (error) {
                 console.error('Error loading data from Supabase:', error);
-                showToast('Error loading data from database', 'error');
+                updateConnectionStatus('disconnected');
+                
+                // Try to load from localStorage as fallback
+                try {
+                    loadDataFromLocalStorage();
+                } catch (localError) {
+                    console.error('Local storage fallback also failed:', localError);
+                    showToast('Error loading data from database and local storage', 'error');
+                }
+                
+                return false;
             }
         }
 
         // Save data to Supabase
         async function saveToSupabase(data) {
+            console.log('Saving to Supabase:', data.type);
+            
             try {
+                // First save to Supabase
                 const { error } = await supabaseClient
                     .from('oee_data')
                     .insert([data]);
                 
-                if (error) throw error;
+                if (error) {
+                    console.error('Supabase save error:', error);
+                    throw error;
+                }
                 
+                console.log('Successfully saved to Supabase');
+                updateConnectionStatus('connected');
                 return true;
+                
             } catch (error) {
                 console.error('Error saving to Supabase:', error);
-                showToast('Error saving to database: ' + error.message, 'error');
+                updateConnectionStatus('disconnected');
+                
+                // Fallback to localStorage
+                console.log('Falling back to localStorage...');
+                
+                if (data.type === 'machine') {
+                    machines.push(data);
+                    saveToLocalStorage('machine', data);
+                } else if (data.type === 'oee_record') {
+                    oeeRecords.push(data);
+                    saveToLocalStorage('oee_record', data);
+                }
+                
+                showToast('Saved to local storage (offline mode). Will sync when online.', 'warning');
                 return false;
             }
         }
@@ -700,10 +911,23 @@
                 
                 if (error) throw error;
                 
+                updateConnectionStatus('connected');
                 return true;
+                
             } catch (error) {
                 console.error('Error updating in Supabase:', error);
-                showToast('Error updating database: ' + error.message, 'error');
+                updateConnectionStatus('disconnected');
+                
+                // Update in localStorage
+                if (data.type === 'machine') {
+                    const index = machines.findIndex(m => m.id === id);
+                    if (index !== -1) {
+                        machines[index] = data;
+                        saveToLocalStorage('machine', data);
+                    }
+                }
+                
+                showToast('Updated in local storage (offline mode)', 'warning');
                 return false;
             }
         }
@@ -718,10 +942,27 @@
                 
                 if (error) throw error;
                 
+                updateConnectionStatus('connected');
                 return true;
+                
             } catch (error) {
                 console.error('Error deleting from Supabase:', error);
-                showToast('Error deleting from database: ' + error.message, 'error');
+                updateConnectionStatus('disconnected');
+                
+                // Delete from localStorage
+                const recordIndex = oeeRecords.findIndex(r => r.id === id);
+                if (recordIndex !== -1) {
+                    oeeRecords.splice(recordIndex, 1);
+                    saveToLocalStorage('oee_record');
+                }
+                
+                const machineIndex = machines.findIndex(m => m.id === id);
+                if (machineIndex !== -1) {
+                    machines.splice(machineIndex, 1);
+                    saveToLocalStorage('machine');
+                }
+                
+                showToast('Deleted from local storage (offline mode)', 'warning');
                 return false;
             }
         }
@@ -778,9 +1019,24 @@
                 await submitMachineData();
             });
             
-            // Auto-uppercase for all text inputs
+            // Auto-uppercase for all text inputs with uppercase-input class
             document.addEventListener('input', (e) => {
-                if (e.target.type === 'text' && !e.target.classList.contains('no-uppercase')) {
+                if (e.target.classList.contains('uppercase-input')) {
+                    const cursorPos = e.target.selectionStart;
+                    e.target.value = e.target.value.toUpperCase();
+                    e.target.setSelectionRange(cursorPos, cursorPos);
+                }
+            });
+            
+            // Also auto-uppercase for OEE form inputs
+            document.addEventListener('input', (e) => {
+                if (e.target.type === 'text' && 
+                    (e.target.id.includes('input-') || 
+                     e.target.classList.contains('line-stop-') ||
+                     e.target.classList.contains('minor-stop-') ||
+                     e.target.classList.contains('customLS') ||
+                     e.target.classList.contains('root-cause-') ||
+                     e.target.classList.contains('corrective-action'))) {
                     const cursorPos = e.target.selectionStart;
                     e.target.value = e.target.value.toUpperCase();
                     e.target.setSelectionRange(cursorPos, cursorPos);
@@ -893,7 +1149,7 @@
             const odtContainer = document.getElementById('odt-items');
             odtContainer.innerHTML = `
                 <div class="flex flex-col md:flex-row space-y-2 md:space-y-0 md:space-x-2">
-                    <input type="text" placeholder="ODT Name" class="flex-1 input-field rounded-lg px-4 py-2 odt-name">
+                    <input type="text" placeholder="ODT Name" class="flex-1 input-field rounded-lg px-4 py-2 odt-name uppercase-input">
                     <input type="number" placeholder="Standard Time (min)" class="w-full md:w-32 input-field rounded-lg px-4 py-2 odt-time">
                     <button type="button" onclick="removeODTItem(this)" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-all">Remove</button>
                 </div>
@@ -901,15 +1157,15 @@
             
             // Reset Line Stop items
             document.getElementById('line-stop-mesin').innerHTML = `
-                <input type="text" placeholder="Line Stop Mesin Item" class="w-full input-field rounded-lg px-4 py-2 line-stop-mesin-item">
+                <input type="text" placeholder="Line Stop Mesin Item" class="w-full input-field rounded-lg px-4 py-2 line-stop-mesin-item uppercase-input">
             `;
             document.getElementById('line-stop-non-mesin').innerHTML = `
-                <input type="text" placeholder="Line Stop Non Mesin Item" class="w-full input-field rounded-lg px-4 py-2 line-stop-non-mesin-item">
+                <input type="text" placeholder="Line Stop Non Mesin Item" class="w-full input-field rounded-lg px-4 py-2 line-stop-non-mesin-item uppercase-input">
             `;
             
             // Reset Minor Stop items
             document.getElementById('minor-stop-items').innerHTML = `
-                <input type="text" placeholder="Minor Stop Item" class="w-full input-field rounded-lg px-4 py-2 minor-stop-item">
+                <input type="text" placeholder="Minor Stop Item" class="w-full input-field rounded-lg px-4 py-2 minor-stop-item uppercase-input">
             `;
         }
 
@@ -918,7 +1174,7 @@
             const div = document.createElement('div');
             div.className = 'flex flex-col md:flex-row space-y-2 md:space-y-0 md:space-x-2';
             div.innerHTML = `
-                <input type="text" placeholder="ODT Name" class="flex-1 input-field rounded-lg px-4 py-2 odt-name">
+                <input type="text" placeholder="ODT Name" class="flex-1 input-field rounded-lg px-4 py-2 odt-name uppercase-input">
                 <input type="number" placeholder="Standard Time (min)" class="w-full md:w-32 input-field rounded-lg px-4 py-2 odt-time">
                 <button type="button" onclick="removeODTItem(this)" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-all">Remove</button>
             `;
@@ -934,7 +1190,7 @@
             const input = document.createElement('input');
             input.type = 'text';
             input.placeholder = 'Line Stop Mesin Item';
-            input.className = 'w-full input-field rounded-lg px-4 py-2 line-stop-mesin-item';
+            input.className = 'w-full input-field rounded-lg px-4 py-2 line-stop-mesin-item uppercase-input';
             container.appendChild(input);
         }
 
@@ -943,7 +1199,7 @@
             const input = document.createElement('input');
             input.type = 'text';
             input.placeholder = 'Line Stop Non Mesin Item';
-            input.className = 'w-full input-field rounded-lg px-4 py-2 line-stop-non-mesin-item';
+            input.className = 'w-full input-field rounded-lg px-4 py-2 line-stop-non-mesin-item uppercase-input';
             container.appendChild(input);
         }
 
@@ -952,7 +1208,7 @@
             const input = document.createElement('input');
             input.type = 'text';
             input.placeholder = 'Minor Stop Item';
-            input.className = 'w-full input-field rounded-lg px-4 py-2 minor-stop-item';
+            input.className = 'w-full input-field rounded-lg px-4 py-2 minor-stop-item uppercase-input';
             container.appendChild(input);
         }
 
@@ -969,6 +1225,8 @@
                 const existingMachine = machines.find(m => m.name === name && m.id !== machineId);
                 if (existingMachine) {
                     showToast('Machine name already exists', 'error');
+                    submitBtn.classList.remove('loading');
+                    submitBtn.textContent = '💾 Save Machine';
                     return;
                 }
                 
@@ -988,18 +1246,24 @@
                 // Collect Line Stop items
                 const lineStopMesin = [];
                 document.querySelectorAll('.line-stop-mesin-item').forEach(input => {
-                    if (input.value) lineStopMesin.push(input.value.toUpperCase());
+                    if (input.value.trim()) {
+                        lineStopMesin.push(input.value.toUpperCase());
+                    }
                 });
                 
                 const lineStopNonMesin = [];
                 document.querySelectorAll('.line-stop-non-mesin-item').forEach(input => {
-                    if (input.value) lineStopNonMesin.push(input.value.toUpperCase());
+                    if (input.value.trim()) {
+                        lineStopNonMesin.push(input.value.toUpperCase());
+                    }
                 });
                 
                 // Collect Minor Stop items
                 const minorStopItems = [];
                 document.querySelectorAll('.minor-stop-item').forEach(input => {
-                    if (input.value) minorStopItems.push(input.value.toUpperCase());
+                    if (input.value.trim()) {
+                        minorStopItems.push(input.value.toUpperCase());
+                    }
                 });
                 
                 const machineData = {
@@ -1007,7 +1271,7 @@
                     type: 'machine',
                     name: name,
                     area: document.getElementById('machine-area').value,
-                    target_per_minute: parseInt(document.getElementById('machine-target').value),
+                    target_per_minute: parseInt(document.getElementById('machine-target').value) || 0,
                     pic: document.getElementById('machine-pic').value.toUpperCase(),
                     odt_items: JSON.stringify(odtItems),
                     line_stop_mesin: JSON.stringify(lineStopMesin),
@@ -1016,7 +1280,7 @@
                     created_at: new Date().toISOString()
                 };
                 
-                // Save to Supabase
+                // Save to database
                 let success = false;
                 if (machineId) {
                     // Update existing machine
@@ -1035,7 +1299,7 @@
                     }
                 }
                 
-                if (success) {
+                if (success || !success) { // Always update UI even if offline
                     updateMachineList();
                     updateMachineSelects();
                     showToast('Machine saved successfully', 'success');
@@ -1059,8 +1323,8 @@
             document.getElementById('edit-machine-id').value = machine.id;
             document.getElementById('machine-name').value = machine.name;
             document.getElementById('machine-area').value = machine.area;
-            document.getElementById('machine-target').value = machine.target_per_minute;
-            document.getElementById('machine-pic').value = machine.pic;
+            document.getElementById('machine-target').value = machine.target_per_minute || 0;
+            document.getElementById('machine-pic').value = machine.pic || '';
             
             // Load ODT items
             const odtItems = JSON.parse(machine.odt_items || '[]');
@@ -1070,7 +1334,7 @@
                 const div = document.createElement('div');
                 div.className = 'flex flex-col md:flex-row space-y-2 md:space-y-0 md:space-x-2';
                 div.innerHTML = `
-                    <input type="text" value="${item.name}" class="flex-1 input-field rounded-lg px-4 py-2 odt-name">
+                    <input type="text" value="${item.name}" class="flex-1 input-field rounded-lg px-4 py-2 odt-name uppercase-input">
                     <input type="number" value="${item.standardTime}" class="w-full md:w-32 input-field rounded-lg px-4 py-2 odt-time">
                     <button type="button" onclick="removeODTItem(this)" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-all">Remove</button>
                 `;
@@ -1085,7 +1349,7 @@
                 const input = document.createElement('input');
                 input.type = 'text';
                 input.value = item;
-                input.className = 'w-full input-field rounded-lg px-4 py-2 line-stop-mesin-item';
+                input.className = 'w-full input-field rounded-lg px-4 py-2 line-stop-mesin-item uppercase-input';
                 lineStopMesinContainer.appendChild(input);
             });
             
@@ -1096,7 +1360,7 @@
                 const input = document.createElement('input');
                 input.type = 'text';
                 input.value = item;
-                input.className = 'w-full input-field rounded-lg px-4 py-2 line-stop-non-mesin-item';
+                input.className = 'w-full input-field rounded-lg px-4 py-2 line-stop-non-mesin-item uppercase-input';
                 lineStopNonMesinContainer.appendChild(input);
             });
             
@@ -1108,7 +1372,7 @@
                 const input = document.createElement('input');
                 input.type = 'text';
                 input.value = item;
-                input.className = 'w-full input-field rounded-lg px-4 py-2 minor-stop-item';
+                input.className = 'w-full input-field rounded-lg px-4 py-2 minor-stop-item uppercase-input';
                 minorStopContainer.appendChild(input);
             });
             
@@ -1163,8 +1427,8 @@
                 row.innerHTML = `
                     <td class="px-2 md:px-4 py-3">${machine.name}</td>
                     <td class="px-2 md:px-4 py-3">${machine.area}</td>
-                    <td class="px-2 md:px-4 py-3">${machine.target_per_minute}</td>
-                    <td class="px-2 md:px-4 py-3">${machine.pic}</td>
+                    <td class="px-2 md:px-4 py-3">${machine.target_per_minute || 0}</td>
+                    <td class="px-2 md:px-4 py-3">${machine.pic || ''}</td>
                     <td class="px-2 md:px-4 py-3">
                         <button onclick="editMachine('${machine.id}')" class="bg-blue-500 text-white px-2 md:px-3 py-1 rounded-lg text-xs md:text-sm hover:bg-blue-600 transition-all mr-2">✏️ Edit</button>
                         <button onclick="deleteMachine('${machine.id}')" class="bg-red-500 text-white px-2 md:px-3 py-1 rounded-lg text-xs md:text-sm hover:bg-red-600 transition-all">🗑️ Delete</button>
@@ -1245,11 +1509,11 @@
             totalLineStop += parseInt(document.getElementById('customLSNonMesinTime2')?.value) || 0;
             
             const availableTime = shiftMinutes - totalODT - totalLineStop;
-            const recommendedOutput = Math.max(0, availableTime * machine.target_per_minute);
+            const recommendedOutput = Math.max(0, availableTime * (machine.target_per_minute || 0));
             
             document.getElementById('target-recommendation').innerHTML = `
                 <strong>🎯 Recommended Target Output: ${recommendedOutput.toLocaleString()} units</strong><br>
-                <small class="opacity-80">📐 Calculation: (${shiftMinutes} - ${totalODT} - ${totalLineStop}) × ${machine.target_per_minute} = ${recommendedOutput}</small>
+                <small class="opacity-80">📐 Calculation: (${shiftMinutes} - ${totalODT} - ${totalLineStop}) × ${machine.target_per_minute || 0} = ${recommendedOutput}</small>
             `;
         }
 
@@ -1314,29 +1578,29 @@
                             <div class="mt-4 space-y-3">
                                 <div class="bg-yellow-50 p-4 rounded-lg border-2 border-yellow-300">
                                     <label class="block text-sm font-medium text-gray-700 mb-2">⚠️ Custom Line Stop Mesin 1</label>
-                                    <input type="text" id="customLSMesinName1" class="w-full input-field rounded-lg px-3 py-2 mb-2 uppercase" 
-                                           placeholder="Nama Problem (opsional)" style="text-transform: uppercase;">
+                                    <input type="text" id="customLSMesinName1" class="w-full input-field rounded-lg px-3 py-2 mb-2" 
+                                           placeholder="Nama Problem (opsional)">
                                     <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
                                         <input type="number" id="customLSMesinTime1" class="input-field rounded-lg px-3 py-2" 
                                                placeholder="Durasi (menit)" onchange="calculateOEE(); calculateTargetRecommendation(); checkCustomWRRequirement('customLSMesinTime1', 'customLSMesinWR1');">
-                                        <input type="text" id="customLSMesinAction1" class="input-field rounded-lg px-3 py-2 uppercase" 
-                                               placeholder="Action" style="text-transform: uppercase;">
-                                        <input type="text" id="customLSMesinWR1" class="input-field rounded-lg px-3 py-2 uppercase" 
-                                               placeholder="No WR" style="text-transform: uppercase;">
+                                        <input type="text" id="customLSMesinAction1" class="input-field rounded-lg px-3 py-2" 
+                                               placeholder="Action">
+                                        <input type="text" id="customLSMesinWR1" class="input-field rounded-lg px-3 py-2" 
+                                               placeholder="No WR">
                                     </div>
                                 </div>
                                 
                                 <div class="bg-yellow-50 p-4 rounded-lg border-2 border-yellow-300">
                                     <label class="block text-sm font-medium text-gray-700 mb-2">⚠️ Custom Line Stop Mesin 2</label>
-                                    <input type="text" id="customLSMesinName2" class="w-full input-field rounded-lg px-3 py-2 mb-2 uppercase" 
-                                           placeholder="Nama Problem (opsional)" style="text-transform: uppercase;">
+                                    <input type="text" id="customLSMesinName2" class="w-full input-field rounded-lg px-3 py-2 mb-2" 
+                                           placeholder="Nama Problem (opsional)">
                                     <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
                                         <input type="number" id="customLSMesinTime2" class="input-field rounded-lg px-3 py-2" 
                                                placeholder="Durasi (menit)" onchange="calculateOEE(); calculateTargetRecommendation(); checkCustomWRRequirement('customLSMesinTime2', 'customLSMesinWR2');">
-                                        <input type="text" id="customLSMesinAction2" class="input-field rounded-lg px-3 py-2 uppercase" 
-                                               placeholder="Action" style="text-transform: uppercase;">
-                                        <input type="text" id="customLSMesinWR2" class="input-field rounded-lg px-3 py-2 uppercase" 
-                                               placeholder="No WR" style="text-transform: uppercase;">
+                                        <input type="text" id="customLSMesinAction2" class="input-field rounded-lg px-3 py-2" 
+                                               placeholder="Action">
+                                        <input type="text" id="customLSMesinWR2" class="input-field rounded-lg px-3 py-2" 
+                                               placeholder="No WR">
                                     </div>
                                 </div>
                             </div>
@@ -1349,25 +1613,25 @@
                             <div class="mt-4 space-y-3">
                                 <div class="bg-yellow-50 p-4 rounded-lg border-2 border-yellow-300">
                                     <label class="block text-sm font-medium text-gray-700 mb-2">⚠️ Custom Line Stop Non Mesin 1</label>
-                                    <input type="text" id="customLSNonMesinName1" class="w-full input-field rounded-lg px-3 py-2 mb-2 uppercase" 
-                                           placeholder="Nama Problem (opsional)" style="text-transform: uppercase;">
+                                    <input type="text" id="customLSNonMesinName1" class="w-full input-field rounded-lg px-3 py-2 mb-2" 
+                                           placeholder="Nama Problem (opsional)">
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
                                         <input type="number" id="customLSNonMesinTime1" class="input-field rounded-lg px-3 py-2" 
                                                placeholder="Durasi (menit)" onchange="calculateOEE(); calculateTargetRecommendation();">
-                                        <input type="text" id="customLSNonMesinAction1" class="input-field rounded-lg px-3 py-2 uppercase" 
-                                               placeholder="Action" style="text-transform: uppercase;">
+                                        <input type="text" id="customLSNonMesinAction1" class="input-field rounded-lg px-3 py-2" 
+                                               placeholder="Action">
                                     </div>
                                 </div>
                                 
                                 <div class="bg-yellow-50 p-4 rounded-lg border-2 border-yellow-300">
                                     <label class="block text-sm font-medium text-gray-700 mb-2">⚠️ Custom Line Stop Non Mesin 2</label>
-                                    <input type="text" id="customLSNonMesinName2" class="w-full input-field rounded-lg px-3 py-2 mb-2 uppercase" 
-                                           placeholder="Nama Problem (opsional)" style="text-transform: uppercase;">
+                                    <input type="text" id="customLSNonMesinName2" class="w-full input-field rounded-lg px-3 py-2 mb-2" 
+                                           placeholder="Nama Problem (opsional)">
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
                                         <input type="number" id="customLSNonMesinTime2" class="input-field rounded-lg px-3 py-2" 
                                                placeholder="Durasi (menit)" onchange="calculateOEE(); calculateTargetRecommendation();">
-                                        <input type="text" id="customLSNonMesinAction2" class="input-field rounded-lg px-3 py-2 uppercase" 
-                                               placeholder="Action" style="text-transform: uppercase;">
+                                        <input type="text" id="customLSNonMesinAction2" class="input-field rounded-lg px-3 py-2" 
+                                               placeholder="Action">
                                     </div>
                                 </div>
                             </div>
@@ -1388,10 +1652,10 @@
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
                             <input type="number" class="input-field rounded-lg px-3 py-2 line-stop-mesin-input" 
                                    data-name="${item}" onchange="checkWRRequirement(); calculateOEE(); calculateTargetRecommendation();" placeholder="Durasi (menit)">
-                            <input type="text" class="input-field rounded-lg px-3 py-2 line-stop-mesin-action uppercase" 
-                                   data-name="${item}" placeholder="Action" style="text-transform: uppercase;">
+                            <input type="text" class="input-field rounded-lg px-3 py-2 line-stop-mesin-action" 
+                                   data-name="${item}" placeholder="Action">
                             <input type="text" class="input-field rounded-lg px-3 py-2 line-stop-mesin-wr" 
-                                   data-name="${item}" placeholder="No WR" style="text-transform: uppercase;">
+                                   data-name="${item}" placeholder="No WR">
                         </div>
                     `;
                     lineStopMesinInputs.appendChild(div);
@@ -1406,8 +1670,8 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
                             <input type="number" class="input-field rounded-lg px-3 py-2 line-stop-non-mesin-input" 
                                    data-name="${item}" onchange="calculateOEE(); calculateTargetRecommendation();" placeholder="Durasi (menit)">
-                            <input type="text" class="input-field rounded-lg px-3 py-2 line-stop-non-mesin-action uppercase" 
-                                   data-name="${item}" placeholder="Action" style="text-transform: uppercase;">
+                            <input type="text" class="input-field rounded-lg px-3 py-2 line-stop-non-mesin-action" 
+                                   data-name="${item}" placeholder="Action">
                         </div>
                     `;
                     lineStopNonMesinInputs.appendChild(div);
@@ -1451,7 +1715,7 @@
             rootCauseSection.className = 'chart-card hidden';
             rootCauseSection.innerHTML = `
                 <h3 class="text-lg font-semibold text-gray-700 mb-4">🔍 Root Cause Analysis</h3>
-                <div class="space-y-4 ${performance < 100 ? 'pulse-yellow' : ''}">
+                <div class="space-y-4">
                     <div class="bg-blue-50 p-4 rounded-lg border-2 border-blue-200">
                         <p class="text-sm text-gray-600 mb-3">
                             <strong>Performance Rate: <span id="current-performance">0%</span></strong><br>
@@ -1518,7 +1782,7 @@
                 });
                 
                 const availableTime = shiftMinutes - totalODT - totalLineStop;
-                const targetOutput = availableTime * machine.target_per_minute;
+                const targetOutput = availableTime * (machine.target_per_minute || 0);
                 
                 const performanceGap = Math.max(0, targetOutput - actualOutput);
                 
@@ -1592,6 +1856,15 @@
             }
         }
 
+        function toggleRootCauseDetails(select, index) {
+            const detailsDiv = document.getElementById(`root-cause-details-${index}`);
+            if (select.value) {
+                detailsDiv.classList.remove('hidden');
+            } else {
+                detailsDiv.classList.add('hidden');
+            }
+        }
+
         function checkCustomWRRequirement(timeInputId, wrInputId) {
             const timeInput = document.getElementById(timeInputId);
             const wrInput = document.getElementById(wrInputId);
@@ -1639,7 +1912,7 @@
                     
                     if (actual > standard) {
                         const overtime = actual - standard;
-                        const overtimeName = `${name} Overtime`;
+                        const overtimeName = `${name} OVERTIME`;
                         
                         const div = document.createElement('div');
                         div.className = 'bg-orange-100 p-4 rounded-lg border-2 border-orange-400';
@@ -1652,7 +1925,7 @@
                                        class="input-field rounded-lg px-3 py-2 bg-orange-50" 
                                        disabled readonly>
                                 <input type="text" value="ODT MELEBIHI STANDARD" 
-                                       class="input-field rounded-lg px-3 py-2 bg-orange-50 uppercase" 
+                                       class="input-field rounded-lg px-3 py-2 bg-orange-50" 
                                        disabled readonly>
                             </div>
                             <p class="text-xs text-orange-600 mt-2">
@@ -1746,7 +2019,7 @@
             
             // Calculate target output
             const availableTime = shiftMinutes - totalDowntime;
-            const targetOutput = availableTime * machine.target_per_minute;
+            const targetOutput = availableTime * (machine.target_per_minute || 0);
             
             // Calculate OEE components
             const workTimeMinusODT = shiftMinutes - totalODT;
@@ -1847,7 +2120,7 @@
             const availability365 = shiftMinutes > 0 ? ((shiftMinutes - totalDowntime) / shiftMinutes) * 100 : 0;
             
             // Performance sama dengan standard OEE (berdasarkan target setelah ODT)
-            const targetOutput = (shiftMinutes - totalODT - totalLineStopMesin - totalLineStopNonMesin) * machine.target_per_minute;
+            const targetOutput = (shiftMinutes - totalODT - totalLineStopMesin - totalLineStopNonMesin) * (machine.target_per_minute || 0);
             const performance365 = targetOutput > 0 ? (actualOutput / targetOutput) * 100 : 0;
             
             // Quality sama dengan standard
@@ -2140,8 +2413,8 @@
                         performance_gap: performanceGap,
                         categories: [],
                         details: [],
-                        corrective_action: document.getElementById('corrective-action')?.value || '',
-                        notes: document.getElementById('root-cause-notes')?.value || ''
+                        corrective_action: document.getElementById('corrective-action')?.value.toUpperCase() || '',
+                        notes: document.getElementById('root-cause-notes')?.value.toUpperCase() || ''
                     };
                     
                     // Collect categories and details
@@ -2149,7 +2422,7 @@
                         if (select.value) {
                             rootCauseData.categories.push(select.value);
                             const detailInput = document.getElementById(`root-cause-details-${index + 1}`)?.querySelector('.root-cause-detail');
-                            rootCauseData.details.push(detailInput?.value || '');
+                            rootCauseData.details.push(detailInput?.value.toUpperCase() || '');
                         }
                     });
                     
@@ -2158,17 +2431,21 @@
                 
                 formData.created_at = new Date().toISOString();
                 
-                // Save to Supabase
+                // Save to database
                 const success = await saveToSupabase(formData);
                 
+                // Always update UI even if offline
+                oeeRecords.push(formData);
+                updateDashboard();
+                updateOperatorFilter();
+                
                 if (success) {
-                    oeeRecords.push(formData);
-                    updateDashboard();
-                    updateOperatorFilter();
-                    
                     showToast('Data OEE berhasil disimpan', 'success');
-                    resetForm();
+                } else {
+                    showToast('Data OEE disimpan di local storage (offline mode)', 'warning');
                 }
+                
+                resetForm();
                 
             } catch (error) {
                 showToast('Error menyimpan data OEE: ' + error.message, 'error');
@@ -2250,21 +2527,30 @@
             // A vs P vs Q Chart
             updateAPQChart(filteredRecords);
             
-            // ODT Chart
-            updateODTChart(filteredRecords);
-            
             // Line Stop Charts
             updateLineStopCharts(filteredRecords);
             
             // Minor Stop Chart
             updateMinorStopChart(filteredRecords);
+            
+            // ODT Chart
+            updateODTChart(filteredRecords);
         }
 
         function updateOEETrendChart(records) {
-            const ctx = document.getElementById('oee-trend-chart').getContext('2d');
+            const canvas = document.getElementById('oee-trend-chart');
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
             
             if (charts.oeeTrend) {
                 charts.oeeTrend.destroy();
+            }
+            
+            if (records.length === 0) {
+                // Show empty state
+                canvas.parentElement.innerHTML = '<p class="text-gray-500 text-center py-8">No data available</p>';
+                return;
             }
             
             // Create color array based on OEE values
@@ -2318,10 +2604,19 @@
 
         // NEW: OEE Comparison Chart
         function updateOEEComparisonChart(records) {
-            const ctx = document.getElementById('oee-comparison-chart').getContext('2d');
+            const canvas = document.getElementById('oee-comparison-chart');
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
             
             if (charts.oeeComparison) {
                 charts.oeeComparison.destroy();
+            }
+            
+            if (records.length === 0) {
+                // Show empty state
+                canvas.parentElement.innerHTML = '<p class="text-gray-500 text-center py-8">No data available</p>';
+                return;
             }
             
             // Ambil 10 records terbaru untuk comparison
@@ -2389,10 +2684,19 @@
         }
 
         function updateAPQChart(records) {
-            const ctx = document.getElementById('apq-chart').getContext('2d');
+            const canvas = document.getElementById('apq-chart');
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
             
             if (charts.apq) {
                 charts.apq.destroy();
+            }
+            
+            if (records.length === 0) {
+                // Show empty state
+                canvas.parentElement.innerHTML = '<p class="text-gray-500 text-center py-8">No data available</p>';
+                return;
             }
             
             const avgA = records.length > 0 ? records.reduce((sum, r) => sum + r.availability, 0) / records.length : 0;
@@ -2465,14 +2769,21 @@
         function updateLineStopCharts(records) {
             // Line Stop Mesin Chart
             const lineStopMesinData = {};
+            let hasLineStopMesinData = false;
+            
             records.forEach(record => {
-                const durations = JSON.parse(record.line_stop_durations || '{}');
-                if (durations.mesin) {
-                    Object.entries(durations.mesin).forEach(([key, value]) => {
-                        if (value > 0) {
-                            lineStopMesinData[key] = (lineStopMesinData[key] || 0) + value;
-                        }
-                    });
+                try {
+                    const durations = JSON.parse(record.line_stop_durations || '{}');
+                    if (durations.mesin) {
+                        Object.entries(durations.mesin).forEach(([key, value]) => {
+                            if (value > 0) {
+                                lineStopMesinData[key] = (lineStopMesinData[key] || 0) + value;
+                                hasLineStopMesinData = true;
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.warn('Error parsing line stop durations:', e);
                 }
             });
             
@@ -2481,19 +2792,31 @@
                 .sort(([,a], [,b]) => b - a)
                 .slice(0, 10);
             
-            updateHorizontalBarChartSmart('line-stop-mesin-chart', 'lineStopMesin', 
-                'Line Stop Mesin (Minutes)', topLineStopMesin, 'rgba(239, 68, 68, 0.8)');
+            if (topLineStopMesin.length > 0) {
+                document.getElementById('line-stop-mesin-container').style.display = 'block';
+                updateHorizontalBarChartSmart('line-stop-mesin-chart', 'lineStopMesin', 
+                    'Line Stop Mesin (Minutes)', topLineStopMesin, 'rgba(239, 68, 68, 0.8)');
+            } else {
+                document.getElementById('line-stop-mesin-container').style.display = 'none';
+            }
             
             // Line Stop Non Mesin Chart
             const lineStopNonMesinData = {};
+            let hasLineStopNonMesinData = false;
+            
             records.forEach(record => {
-                const durations = JSON.parse(record.line_stop_durations || '{}');
-                if (durations.nonMesin) {
-                    Object.entries(durations.nonMesin).forEach(([key, value]) => {
-                        if (value > 0) {
-                            lineStopNonMesinData[key] = (lineStopNonMesinData[key] || 0) + value;
-                        }
-                    });
+                try {
+                    const durations = JSON.parse(record.line_stop_durations || '{}');
+                    if (durations.nonMesin) {
+                        Object.entries(durations.nonMesin).forEach(([key, value]) => {
+                            if (value > 0) {
+                                lineStopNonMesinData[key] = (lineStopNonMesinData[key] || 0) + value;
+                                hasLineStopNonMesinData = true;
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.warn('Error parsing line stop durations:', e);
                 }
             });
             
@@ -2502,19 +2825,31 @@
                 .sort(([,a], [,b]) => b - a)
                 .slice(0, 10);
             
-            updateHorizontalBarChartSmart('line-stop-non-mesin-chart', 'lineStopNonMesin', 
-                'Line Stop Non Mesin (Minutes)', topLineStopNonMesin, 'rgba(251, 191, 36, 0.8)');
+            if (topLineStopNonMesin.length > 0) {
+                document.getElementById('line-stop-non-mesin-container').style.display = 'block';
+                updateHorizontalBarChartSmart('line-stop-non-mesin-chart', 'lineStopNonMesin', 
+                    'Line Stop Non Mesin (Minutes)', topLineStopNonMesin, 'rgba(251, 191, 36, 0.8)');
+            } else {
+                document.getElementById('line-stop-non-mesin-container').style.display = 'none';
+            }
         }
 
         function updateODTChart(records) {
             const odtData = {};
+            let hasData = false;
+            
             records.forEach(record => {
-                const odtTimes = JSON.parse(record.odt_actual_times || '{}');
-                Object.entries(odtTimes).forEach(([key, value]) => {
-                    if (value > 0) {
-                        odtData[key] = (odtData[key] || 0) + value;
-                    }
-                });
+                try {
+                    const odtTimes = JSON.parse(record.odt_actual_times || '{}');
+                    Object.entries(odtTimes).forEach(([key, value]) => {
+                        if (value > 0) {
+                            odtData[key] = (odtData[key] || 0) + value;
+                            hasData = true;
+                        }
+                    });
+                } catch (e) {
+                    console.warn('Error parsing ODT times:', e);
+                }
             });
             
             const topODT = Object.entries(odtData)
@@ -2522,19 +2857,31 @@
                 .sort(([,a], [,b]) => b - a)
                 .slice(0, 10);
             
-            updateHorizontalBarChartSmart('odt-chart', 'odt', 
-                'ODT Time (Minutes)', topODT, 'rgba(139, 92, 246, 0.8)');
+            if (topODT.length > 0) {
+                document.getElementById('odt-chart-container').style.display = 'block';
+                updateHorizontalBarChartSmart('odt-chart', 'odt', 
+                    'ODT Time (Minutes)', topODT, 'rgba(139, 92, 246, 0.8)');
+            } else {
+                document.getElementById('odt-chart-container').style.display = 'none';
+            }
         }
 
         function updateMinorStopChart(records) {
             const minorStopData = {};
+            let hasData = false;
+            
             records.forEach(record => {
-                const minorStops = JSON.parse(record.minor_stop_frequencies || '{}');
-                Object.entries(minorStops).forEach(([key, value]) => {
-                    if (value > 0) {
-                        minorStopData[key] = (minorStopData[key] || 0) + value;
-                    }
-                });
+                try {
+                    const minorStops = JSON.parse(record.minor_stop_frequencies || '{}');
+                    Object.entries(minorStops).forEach(([key, value]) => {
+                        if (value > 0) {
+                            minorStopData[key] = (minorStopData[key] || 0) + value;
+                            hasData = true;
+                        }
+                    });
+                } catch (e) {
+                    console.warn('Error parsing minor stop frequencies:', e);
+                }
             });
             
             const topMinorStop = Object.entries(minorStopData)
@@ -2542,11 +2889,31 @@
                 .sort(([,a], [,b]) => b - a)
                 .slice(0, 10);
             
-            updateHorizontalBarChartSmart('minor-stop-chart', 'minorStop', 
-                'Minor Stop Frequency (Count)', topMinorStop, 'rgba(249, 115, 22, 0.8)');
+            if (topMinorStop.length > 0) {
+                document.getElementById('minor-stop-container').style.display = 'block';
+                updateHorizontalBarChartSmart('minor-stop-chart', 'minorStop', 
+                    'Minor Stop Frequency (Count)', topMinorStop, 'rgba(249, 115, 22, 0.8)');
+            } else {
+                document.getElementById('minor-stop-container').style.display = 'none';
+            }
         }
 
         function updateOEEPerMachineChart(records) {
+            const canvas = document.getElementById('oee-per-machine-chart');
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            
+            if (charts.oeePerMachine) {
+                charts.oeePerMachine.destroy();
+            }
+            
+            if (records.length === 0) {
+                // Show empty state
+                canvas.parentElement.innerHTML = '<p class="text-gray-500 text-center py-8">No data available</p>';
+                return;
+            }
+            
             const machineOEE = {};
             records.forEach(record => {
                 if (!machineOEE[record.machine]) {
@@ -2559,12 +2926,6 @@
             const avgOEEPerMachine = Object.entries(machineOEE).map(([machine, data]) => [
                 machine, data.total / data.count
             ]);
-            
-            const ctx = document.getElementById('oee-per-machine-chart').getContext('2d');
-            
-            if (charts.oeePerMachine) {
-                charts.oeePerMachine.destroy();
-            }
             
             // Create color array based on OEE values
             const colors = avgOEEPerMachine.map(([, oee]) => 
@@ -2654,10 +3015,22 @@
         }
 
         function updateHorizontalBarChartSmart(canvasId, chartKey, label, data, color) {
-            const ctx = document.getElementById(canvasId).getContext('2d');
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) {
+                console.warn(`Canvas ${canvasId} not found`);
+                return;
+            }
+            
+            const ctx = canvas.getContext('2d');
             
             if (charts[chartKey]) {
                 charts[chartKey].destroy();
+            }
+            
+            if (data.length === 0) {
+                // Show empty state
+                canvas.parentElement.innerHTML = '<p class="text-gray-500 text-center py-8">No data available</p>';
+                return;
             }
             
             // Calculate max value for dynamic positioning
@@ -2775,17 +3148,28 @@
                     const shiftMinutes = getShiftMinutes(record.shift);
                     
                     // Calculate total ODT
-                    const odtTimes = JSON.parse(record.odt_actual_times || '{}');
-                    const totalODT = Object.values(odtTimes).reduce((sum, time) => sum + (time || 0), 0);
+                    let totalODT = 0;
+                    try {
+                        const odtTimes = JSON.parse(record.odt_actual_times || '{}');
+                        totalODT = Object.values(odtTimes).reduce((sum, time) => sum + (time || 0), 0);
+                    } catch (e) {
+                        console.warn('Error parsing ODT times for target calculation:', e);
+                    }
                     
                     // Calculate total Line Stop
-                    const lineStopDurations = JSON.parse(record.line_stop_durations || '{}');
-                    const totalLineStopMesin = Object.values(lineStopDurations.mesin || {}).reduce((sum, time) => sum + (time || 0), 0);
-                    const totalLineStopNonMesin = Object.values(lineStopDurations.nonMesin || {}).reduce((sum, time) => sum + (time || 0), 0);
+                    let totalLineStopMesin = 0;
+                    let totalLineStopNonMesin = 0;
+                    try {
+                        const lineStopDurations = JSON.parse(record.line_stop_durations || '{}');
+                        totalLineStopMesin = Object.values(lineStopDurations.mesin || {}).reduce((sum, time) => sum + (time || 0), 0);
+                        totalLineStopNonMesin = Object.values(lineStopDurations.nonMesin || {}).reduce((sum, time) => sum + (time || 0), 0);
+                    } catch (e) {
+                        console.warn('Error parsing line stop durations for target calculation:', e);
+                    }
                     
                     // Calculate target
                     const availableTime = shiftMinutes - totalODT - totalLineStopMesin - totalLineStopNonMesin;
-                    const targetOutput = Math.max(0, availableTime * machine.target_per_minute);
+                    const targetOutput = Math.max(0, availableTime * (machine.target_per_minute || 0));
                     
                     operatorData[record.pic].totalTarget += targetOutput;
                 }
@@ -2798,6 +3182,17 @@
             
             const tbody = document.getElementById('operator-performance-table');
             tbody.innerHTML = '';
+            
+            if (Object.keys(operatorData).length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="px-4 py-4 text-center text-gray-500">
+                            No operator data available
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
             
             // Sort by achievement (highest first)
             const sortedOperators = Object.entries(operatorData).sort((a, b) => {
@@ -2835,6 +3230,17 @@
             const tbody = document.getElementById('dashboard-history-table');
             tbody.innerHTML = '';
             
+            if (filteredRecords.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="15" class="px-4 py-4 text-center text-gray-500">
+                            No OEE records available
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
             // Sort by date (ascending) then by shift order (ascending)
             const sortedRecords = [...filteredRecords].sort((a, b) => {
                 const dateCompare = a.date.localeCompare(b.date);
@@ -2847,45 +3253,54 @@
                 row.className = `border-b ${record.oee < 88 ? 'pulse-red' : ''}`;
                 
                 // Parse complex data for display (all UPPERCASE)
-                const odtTimes = JSON.parse(record.odt_actual_times || '{}');
-                const lineStopDurations = JSON.parse(record.line_stop_durations || '{}');
-                const minorStopFreqs = JSON.parse(record.minor_stop_frequencies || '{}');
-                const wrNumbers = JSON.parse(record.wr_number || '{}');
-                const rootCauseData = JSON.parse(record.root_cause_analysis || '{}');
-                
-                // Filter out items with zero or empty values
-                const odtDisplay = Object.entries(odtTimes)
-                    .filter(([k,v]) => v > 0)
-                    .map(([k,v]) => `${k.toUpperCase()}:${v}MIN`)
-                    .join(', ') || '-';
-                    
-                const lineStopDisplay = [
-                    ...Object.entries(lineStopDurations.mesin || {})
-                        .filter(([k,v]) => v > 0)
-                        .map(([k,v]) => `M-${k.toUpperCase()}:${v}MIN`),
-                    ...Object.entries(lineStopDurations.nonMesin || {})
-                        .filter(([k,v]) => v > 0)
-                        .map(([k,v]) => `NM-${k.toUpperCase()}:${v}MIN`)
-                ].join(', ') || '-';
-                
-                const minorStopDisplay = Object.entries(minorStopFreqs)
-                    .filter(([k,v]) => v > 0)
-                    .map(([k,v]) => `${k.toUpperCase()}:${v}X`)
-                    .join(', ') || '-';
-                
-                const wrDisplay = Object.entries(wrNumbers)
-                    .map(([k,v]) => `${k.toUpperCase()}:${v.toUpperCase()}`)
-                    .join(', ') || '-';
-                
-                // Root cause display
+                let odtDisplay = '-';
+                let lineStopDisplay = '-';
+                let minorStopDisplay = '-';
+                let wrDisplay = '-';
                 let rootCauseDisplay = '-';
-                if (rootCauseData && rootCauseData.categories && rootCauseData.categories.length > 0) {
-                    const categories = rootCauseData.categories || [];
-                    const details = rootCauseData.details || [];
-                    rootCauseDisplay = categories.map((cat, idx) => {
-                        const detail = details[idx] ? `:${details[idx]}` : '';
-                        return `${cat}${detail}`;
-                    }).join(', ');
+                
+                try {
+                    const odtTimes = JSON.parse(record.odt_actual_times || '{}');
+                    const lineStopDurations = JSON.parse(record.line_stop_durations || '{}');
+                    const minorStopFreqs = JSON.parse(record.minor_stop_frequencies || '{}');
+                    const wrNumbers = JSON.parse(record.wr_number || '{}');
+                    const rootCauseData = JSON.parse(record.root_cause_analysis || '{}');
+                    
+                    // Filter out items with zero or empty values
+                    odtDisplay = Object.entries(odtTimes)
+                        .filter(([k,v]) => v > 0)
+                        .map(([k,v]) => `${k.toUpperCase()}:${v}MIN`)
+                        .join(', ') || '-';
+                        
+                    lineStopDisplay = [
+                        ...Object.entries(lineStopDurations.mesin || {})
+                            .filter(([k,v]) => v > 0)
+                            .map(([k,v]) => `M-${k.toUpperCase()}:${v}MIN`),
+                        ...Object.entries(lineStopDurations.nonMesin || {})
+                            .filter(([k,v]) => v > 0)
+                            .map(([k,v]) => `NM-${k.toUpperCase()}:${v}MIN`)
+                    ].join(', ') || '-';
+                    
+                    minorStopDisplay = Object.entries(minorStopFreqs)
+                        .filter(([k,v]) => v > 0)
+                        .map(([k,v]) => `${k.toUpperCase()}:${v}X`)
+                        .join(', ') || '-';
+                    
+                    wrDisplay = Object.entries(wrNumbers)
+                        .map(([k,v]) => `${k.toUpperCase()}:${v.toUpperCase()}`)
+                        .join(', ') || '-';
+                    
+                    // Root cause display
+                    if (rootCauseData && rootCauseData.categories && rootCauseData.categories.length > 0) {
+                        const categories = rootCauseData.categories || [];
+                        const details = rootCauseData.details || [];
+                        rootCauseDisplay = categories.map((cat, idx) => {
+                            const detail = details[idx] ? `:${details[idx]}` : '';
+                            return `${cat}${detail}`;
+                        }).join(', ');
+                    }
+                } catch (e) {
+                    console.warn('Error parsing record data for display:', e);
                 }
                 
                 row.innerHTML = `
@@ -3033,7 +3448,7 @@
                         <tr style="${record.oee < 88 ? 'background-color: #fecaca;' : ''}">
                             <td>${record.date}</td>
                             <td>${record.shift.toUpperCase()}</td>
-                            <td>${record.machine.toUpperCase()}</td>
+                            <td>${record.machine.toUpperCase()</td>
                             <td>${record.pic.toUpperCase()}</td>
                             <td>${record.product.toUpperCase()}</td>
                             <td>${record.batch.toUpperCase()}</td>
@@ -3095,6 +3510,7 @@
             toast.className = `toast fixed top-4 right-4 px-6 py-4 rounded-xl text-white z-50 shadow-2xl ${
                 type === 'success' ? 'bg-gradient-to-r from-green-500 to-green-600' : 
                 type === 'error' ? 'bg-gradient-to-r from-red-500 to-red-600' : 
+                type === 'warning' ? 'bg-gradient-to-r from-yellow-500 to-yellow-600' :
                 'bg-gradient-to-r from-blue-500 to-blue-600'
             }`;
             toast.innerHTML = `<strong>${message}</strong>`;
