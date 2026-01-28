@@ -2021,7 +2021,7 @@
         }
 
         // =============================================
-        // CHART RENDERING - DENGAN LABEL PADA SETIAP BAR
+        // CHART RENDERING - DENGAN LABEL YANG RAPI
         // =============================================
         function renderCharts() {
             const filtered = getFilteredRecords();
@@ -2108,12 +2108,20 @@
                             }
                         },
                         scales: {
-                            y: { beginAtZero: true, max: 100 },
+                            y: { 
+                                beginAtZero: true, 
+                                max: 100,
+                                ticks: {
+                                    font: { size: 11 },
+                                    padding: 10
+                                }
+                            },
                             x: {
                                 ticks: {
                                     font: { size: 10 },
                                     maxRotation: 0,
-                                    minRotation: 0
+                                    minRotation: 0,
+                                    padding: 5
                                 }
                             }
                         }
@@ -2143,11 +2151,11 @@
                 const data = Object.entries(machineStats).map(([name, stats]) => ({
                     name,
                     avg: stats.total / stats.count
-                })).sort((a, b) => b.avg - a.avg);
+                })).sort((a, b) => b.avg - a.avg).slice(0, 8); // Limit to 8 mesin teratas
                 
                 if (data.length === 0) return;
                 
-                const labels = data.map(d => d.name);
+                const labels = data.map(d => d.name.length > 15 ? d.name.substring(0, 15) + '...' : d.name);
                 const values = data.map(d => d.avg);
                 const colors = values.map(v => v >= 88 ? '#10b981' : '#ef4444');
                 
@@ -2159,35 +2167,58 @@
                             label: 'Avg OEE Actual',
                             data: values,
                             backgroundColor: colors
-                        }, {
-                            label: 'Target 88%',
-                            data: Array(labels.length).fill(88),
-                            type: 'line',
-                            borderColor: '#10b981',
-                            borderDash: [5, 5],
-                            pointRadius: 0,
-                            fill: false
                         }]
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
                         plugins: { 
-                            legend: { display: true },
-                            datalabels: {
-                                anchor: 'center',
-                                align: 'center',
-                                color: '#ffffff',
-                                font: {
-                                    weight: 'bold',
-                                    size: 11
-                                },
-                                formatter: function(value) {
-                                    return value.toFixed(1) + '%';
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const originalLabel = data[context.dataIndex].name;
+                                        return `${originalLabel}: ${context.raw.toFixed(1)}%`;
+                                    }
                                 }
                             }
                         },
-                        scales: { y: { beginAtZero: true, max: 100 } }
+                        scales: { 
+                            y: { 
+                                beginAtZero: true, 
+                                max: 100,
+                                ticks: {
+                                    callback: function(value) {
+                                        return value + '%';
+                                    },
+                                    font: { size: 11 },
+                                    padding: 5
+                                },
+                                grid: {
+                                    display: true,
+                                    drawBorder: true
+                                }
+                            },
+                            x: {
+                                ticks: {
+                                    font: { size: 10 },
+                                    maxRotation: 45,
+                                    minRotation: 0,
+                                    padding: 5
+                                },
+                                grid: {
+                                    display: false
+                                }
+                            }
+                        },
+                        layout: {
+                            padding: {
+                                top: 20,
+                                right: 10,
+                                bottom: 10,
+                                left: 10
+                            }
+                        }
                     },
                     plugins: [{
                         id: 'datalabels',
@@ -2195,7 +2226,7 @@
                             const { ctx, data, chartArea: { top, bottom, left, right, width, height } } = chart;
                             ctx.save();
                             
-                            data.datasets[0].data.forEach((value, index) => {
+                            data.datasets[0].data.forEach((value, index) {
                                 const meta = chart.getDatasetMeta(0);
                                 const bar = meta.data[index];
                                 
@@ -2205,16 +2236,25 @@
                                     const barWidth = bar.width;
                                     const barHeight = bar.height;
                                     
-                                    // Hitung posisi tengah bar
-                                    const centerX = x;
-                                    const centerY = y + (barHeight / 2);
+                                    // Hitung posisi label - di atas bar jika cukup tinggi
+                                    let labelY;
+                                    if (barHeight > 25) {
+                                        // Label di dalam bar jika cukup tinggi
+                                        labelY = y + (barHeight / 2);
+                                    } else {
+                                        // Label di atas bar jika terlalu pendek
+                                        labelY = y - 10;
+                                    }
                                     
-                                    // Tampilkan label di tengah bar
-                                    ctx.fillStyle = '#ffffff';
+                                    // Warna kontras
+                                    const textColor = barHeight > 25 ? '#ffffff' : '#333333';
+                                    
+                                    // Tampilkan label
+                                    ctx.fillStyle = textColor;
                                     ctx.font = 'bold 11px Arial';
                                     ctx.textAlign = 'center';
                                     ctx.textBaseline = 'middle';
-                                    ctx.fillText(value.toFixed(1) + '%', centerX, centerY);
+                                    ctx.fillText(value.toFixed(1) + '%', x, labelY);
                                 }
                             });
                             
@@ -2260,7 +2300,7 @@
                             tooltip: {
                                 callbacks: {
                                     label: function(context) {
-                                        return `${context.dataset.label}: ${context.raw.toFixed(1)}%`;
+                                        return `${context.label}: ${context.raw.toFixed(1)}%`;
                                     }
                                 }
                             }
@@ -2272,9 +2312,25 @@
                                 ticks: {
                                     callback: function(value) {
                                         return value + '%';
-                                    }
+                                    },
+                                    font: { size: 11 },
+                                    padding: 5
                                 }
-                            } 
+                            },
+                            x: {
+                                ticks: {
+                                    font: { size: 11 },
+                                    padding: 5
+                                }
+                            }
+                        },
+                        layout: {
+                            padding: {
+                                top: 20,
+                                right: 10,
+                                bottom: 10,
+                                left: 10
+                            }
                         }
                     },
                     plugins: [{
@@ -2283,7 +2339,7 @@
                             const { ctx, data, chartArea: { top, bottom, left, right, width, height } } = chart;
                             ctx.save();
                             
-                            data.datasets[0].data.forEach((value, index) => {
+                            data.datasets[0].data.forEach((value, index) {
                                 const meta = chart.getDatasetMeta(0);
                                 const bar = meta.data[index];
                                 
@@ -2293,16 +2349,20 @@
                                     const barWidth = bar.width;
                                     const barHeight = bar.height;
                                     
-                                    // Hitung posisi tengah bar
-                                    const centerX = x;
-                                    const centerY = y + (barHeight / 2);
+                                    // Label di tengah bar
+                                    const labelY = y + (barHeight / 2);
                                     
-                                    // Tampilkan label di tengah bar
-                                    ctx.fillStyle = '#ffffff';
+                                    // Warna kontras berdasarkan background
+                                    const backgroundColor = data.datasets[0].backgroundColor[index];
+                                    const isDark = backgroundColor === '#ef4444' || backgroundColor === '#667eea';
+                                    const textColor = isDark ? '#ffffff' : '#333333';
+                                    
+                                    // Tampilkan label
+                                    ctx.fillStyle = textColor;
                                     ctx.font = 'bold 12px Arial';
                                     ctx.textAlign = 'center';
                                     ctx.textBaseline = 'middle';
-                                    ctx.fillText(value.toFixed(1) + '%', centerX, centerY);
+                                    ctx.fillText(value.toFixed(1) + '%', x, labelY);
                                 }
                             });
                             
@@ -2343,11 +2403,11 @@
                 
                 const sorted = Object.entries(odtStats)
                     .sort((a, b) => b[1] - a[1])
-                    .slice(0, 10);
+                    .slice(0, 8); // Limit to 8 items
                 
                 if (sorted.length === 0) return;
                 
-                const labels = sorted.map(s => s[0].length > 20 ? s[0].substring(0, 20) + '...' : s[0]);
+                const labels = sorted.map(s => s[0].length > 25 ? s[0].substring(0, 25) + '...' : s[0]);
                 const values = sorted.map(s => s[1]);
                 
                 chartInstances.odt = new Chart(ctx, {
@@ -2377,6 +2437,32 @@
                                     }
                                 }
                             }
+                        },
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                ticks: {
+                                    font: { size: 11 },
+                                    padding: 5,
+                                    callback: function(value) {
+                                        return value + ' min';
+                                    }
+                                }
+                            },
+                            y: {
+                                ticks: {
+                                    font: { size: 10 },
+                                    padding: 5
+                                }
+                            }
+                        },
+                        layout: {
+                            padding: {
+                                top: 10,
+                                right: 40, // Extra space for labels
+                                bottom: 10,
+                                left: 10
+                            }
                         }
                     },
                     plugins: [{
@@ -2385,7 +2471,7 @@
                             const { ctx, data, chartArea: { top, bottom, left, right, width, height } } = chart;
                             ctx.save();
                             
-                            data.datasets[0].data.forEach((value, index) => {
+                            data.datasets[0].data.forEach((value, index) {
                                 const meta = chart.getDatasetMeta(0);
                                 const bar = meta.data[index];
                                 
@@ -2395,16 +2481,16 @@
                                     const barWidth = bar.width;
                                     const barHeight = bar.height;
                                     
-                                    // Hitung posisi tengah bar (horizontal chart)
-                                    const centerX = x - (barWidth / 2) - 25;
-                                    const centerY = y;
+                                    // Label di ujung kanan bar
+                                    const labelX = x + 5; // Sedikit di sebelah kanan bar
+                                    const labelY = y;
                                     
-                                    // Tampilkan label di sebelah kiri bar
+                                    // Tampilkan label
                                     ctx.fillStyle = '#333333';
                                     ctx.font = 'bold 11px Arial';
-                                    ctx.textAlign = 'right';
+                                    ctx.textAlign = 'left';
                                     ctx.textBaseline = 'middle';
-                                    ctx.fillText(value.toFixed(0) + ' min', centerX, centerY);
+                                    ctx.fillText(value.toFixed(0) + ' min', labelX, labelY);
                                 }
                             });
                             
@@ -2441,11 +2527,11 @@
                 
                 const sorted = Object.entries(lsStats)
                     .sort((a, b) => b[1] - a[1])
-                    .slice(0, 10);
+                    .slice(0, 8); // Limit to 8 items
                 
                 if (sorted.length === 0) return;
                 
-                const labels = sorted.map(s => s[0].length > 20 ? s[0].substring(0, 20) + '...' : s[0]);
+                const labels = sorted.map(s => s[0].length > 25 ? s[0].substring(0, 25) + '...' : s[0]);
                 const values = sorted.map(s => s[1]);
                 
                 chartInstances.lsMesin = new Chart(ctx, {
@@ -2475,6 +2561,32 @@
                                     }
                                 }
                             }
+                        },
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                ticks: {
+                                    font: { size: 11 },
+                                    padding: 5,
+                                    callback: function(value) {
+                                        return value + ' min';
+                                    }
+                                }
+                            },
+                            y: {
+                                ticks: {
+                                    font: { size: 10 },
+                                    padding: 5
+                                }
+                            }
+                        },
+                        layout: {
+                            padding: {
+                                top: 10,
+                                right: 40,
+                                bottom: 10,
+                                left: 10
+                            }
                         }
                     },
                     plugins: [{
@@ -2483,7 +2595,7 @@
                             const { ctx, data, chartArea: { top, bottom, left, right, width, height } } = chart;
                             ctx.save();
                             
-                            data.datasets[0].data.forEach((value, index) => {
+                            data.datasets[0].data.forEach((value, index) {
                                 const meta = chart.getDatasetMeta(0);
                                 const bar = meta.data[index];
                                 
@@ -2493,16 +2605,16 @@
                                     const barWidth = bar.width;
                                     const barHeight = bar.height;
                                     
-                                    // Hitung posisi tengah bar (horizontal chart)
-                                    const centerX = x - (barWidth / 2) - 25;
-                                    const centerY = y;
+                                    // Label di ujung kanan bar
+                                    const labelX = x + 5;
+                                    const labelY = y;
                                     
-                                    // Tampilkan label di sebelah kiri bar
+                                    // Tampilkan label
                                     ctx.fillStyle = '#333333';
                                     ctx.font = 'bold 11px Arial';
-                                    ctx.textAlign = 'right';
+                                    ctx.textAlign = 'left';
                                     ctx.textBaseline = 'middle';
-                                    ctx.fillText(value.toFixed(0) + ' min', centerX, centerY);
+                                    ctx.fillText(value.toFixed(0) + ' min', labelX, labelY);
                                 }
                             });
                             
@@ -2539,11 +2651,11 @@
                 
                 const sorted = Object.entries(lsStats)
                     .sort((a, b) => b[1] - a[1])
-                    .slice(0, 10);
+                    .slice(0, 8); // Limit to 8 items
                 
                 if (sorted.length === 0) return;
                 
-                const labels = sorted.map(s => s[0].length > 20 ? s[0].substring(0, 20) + '...' : s[0]);
+                const labels = sorted.map(s => s[0].length > 25 ? s[0].substring(0, 25) + '...' : s[0]);
                 const values = sorted.map(s => s[1]);
                 
                 chartInstances.lsNonMesin = new Chart(ctx, {
@@ -2573,6 +2685,32 @@
                                     }
                                 }
                             }
+                        },
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                ticks: {
+                                    font: { size: 11 },
+                                    padding: 5,
+                                    callback: function(value) {
+                                        return value + ' min';
+                                    }
+                                }
+                            },
+                            y: {
+                                ticks: {
+                                    font: { size: 10 },
+                                    padding: 5
+                                }
+                            }
+                        },
+                        layout: {
+                            padding: {
+                                top: 10,
+                                right: 40,
+                                bottom: 10,
+                                left: 10
+                            }
                         }
                     },
                     plugins: [{
@@ -2581,7 +2719,7 @@
                             const { ctx, data, chartArea: { top, bottom, left, right, width, height } } = chart;
                             ctx.save();
                             
-                            data.datasets[0].data.forEach((value, index) => {
+                            data.datasets[0].data.forEach((value, index) {
                                 const meta = chart.getDatasetMeta(0);
                                 const bar = meta.data[index];
                                 
@@ -2591,16 +2729,16 @@
                                     const barWidth = bar.width;
                                     const barHeight = bar.height;
                                     
-                                    // Hitung posisi tengah bar (horizontal chart)
-                                    const centerX = x - (barWidth / 2) - 25;
-                                    const centerY = y;
+                                    // Label di ujung kanan bar
+                                    const labelX = x + 5;
+                                    const labelY = y;
                                     
-                                    // Tampilkan label di sebelah kiri bar
+                                    // Tampilkan label
                                     ctx.fillStyle = '#333333';
                                     ctx.font = 'bold 11px Arial';
-                                    ctx.textAlign = 'right';
+                                    ctx.textAlign = 'left';
                                     ctx.textBaseline = 'middle';
-                                    ctx.fillText(value.toFixed(0) + ' min', centerX, centerY);
+                                    ctx.fillText(value.toFixed(0) + ' min', labelX, labelY);
                                 }
                             });
                             
@@ -2637,11 +2775,11 @@
                 
                 const sorted = Object.entries(msStats)
                     .sort((a, b) => b[1] - a[1])
-                    .slice(0, 10);
+                    .slice(0, 8); // Limit to 8 items
                 
                 if (sorted.length === 0) return;
                 
-                const labels = sorted.map(s => s[0].length > 20 ? s[0].substring(0, 20) + '...' : s[0]);
+                const labels = sorted.map(s => s[0].length > 25 ? s[0].substring(0, 25) + '...' : s[0]);
                 const values = sorted.map(s => s[1]);
                 
                 chartInstances.minorStop = new Chart(ctx, {
@@ -2671,6 +2809,29 @@
                                     }
                                 }
                             }
+                        },
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                ticks: {
+                                    font: { size: 11 },
+                                    padding: 5
+                                }
+                            },
+                            y: {
+                                ticks: {
+                                    font: { size: 10 },
+                                    padding: 5
+                                }
+                            }
+                        },
+                        layout: {
+                            padding: {
+                                top: 10,
+                                right: 40,
+                                bottom: 10,
+                                left: 10
+                            }
                         }
                     },
                     plugins: [{
@@ -2679,7 +2840,7 @@
                             const { ctx, data, chartArea: { top, bottom, left, right, width, height } } = chart;
                             ctx.save();
                             
-                            data.datasets[0].data.forEach((value, index) => {
+                            data.datasets[0].data.forEach((value, index) {
                                 const meta = chart.getDatasetMeta(0);
                                 const bar = meta.data[index];
                                 
@@ -2689,16 +2850,16 @@
                                     const barWidth = bar.width;
                                     const barHeight = bar.height;
                                     
-                                    // Hitung posisi tengah bar (horizontal chart)
-                                    const centerX = x - (barWidth / 2) - 25;
-                                    const centerY = y;
+                                    // Label di ujung kanan bar
+                                    const labelX = x + 5;
+                                    const labelY = y;
                                     
-                                    // Tampilkan label di sebelah kiri bar
+                                    // Tampilkan label
                                     ctx.fillStyle = '#333333';
                                     ctx.font = 'bold 11px Arial';
-                                    ctx.textAlign = 'right';
+                                    ctx.textAlign = 'left';
                                     ctx.textBaseline = 'middle';
-                                    ctx.fillText(value.toFixed(0) + 'x', centerX, centerY);
+                                    ctx.fillText(value.toFixed(0) + 'x', labelX, labelY);
                                 }
                             });
                             
