@@ -85,13 +85,29 @@
         let chartInstances = {};
         let editMode = false;
         let editingRecordId = null;
+        
+        // Helper function untuk mendapatkan tanggal awal dan akhir bulan
+        function getStartOfMonth(date = new Date()) {
+            let d = new Date(date);
+            d.setDate(1);
+            return d.toISOString().split('T')[0];
+        }
+        
+        function getEndOfMonth(date = new Date()) {
+            let d = new Date(date);
+            d.setMonth(d.getMonth() + 1);
+            d.setDate(0);
+            return d.toISOString().split('T')[0];
+        }
+        
         let filters = { 
-            startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], 
-            endDate: new Date().toISOString().split('T')[0], 
+            startDate: getStartOfMonth(), 
+            endDate: getEndOfMonth(), 
             shift: 'all', 
             machine: 'all', 
             pic: 'all'
         };
+        
         let currentMachineData = null, currentMachineDetails = null;
         const MANAGEMENT_PASSWORD = 'admin123';
         const SHIFTS = { 
@@ -189,6 +205,18 @@
                 return d >= s && d <= e && (filters.shift === 'all' || r.shift === filters.shift) && (filters.machine === 'all' || r.machine_name === filters.machine) && (filters.pic === 'all' || r.pic === filters.pic); 
             });
         }
+        
+        // Fungsi untuk mendapatkan semua tanggal dalam rentang
+        function getAllDatesInRange(startDate, endDate) {
+            let dates = [];
+            let currentDate = new Date(startDate);
+            let end = new Date(endDate);
+            while (currentDate <= end) {
+                dates.push(currentDate.toISOString().split('T')[0]);
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+            return dates;
+        }
 
         function renderDashboard() {
             let filtered = getFilteredRecords();
@@ -237,12 +265,12 @@
                 </div>
                 
                 <div class="card">
-                    <div class="card-header">📈 OEE per Hari</div>
+                    <div class="card-header">📈 OEE per Hari (Periode Filter)</div>
                     <div class="chart-container"><canvas id="daily-oee-chart"></canvas></div>
                 </div>
                 
                 <div class="grid-2">
-                    <div class="card"><div class="card-header">📈 AVG OEE per Bulan</div><div class="chart-container"><canvas id="chart-trend"></canvas></div></div>
+                    <div class="card"><div class="card-header">📈 AVG OEE per Bulan (Tahun Berjalan)</div><div class="chart-container"><canvas id="chart-trend"></canvas></div></div>
                     <div class="card"><div class="card-header">🎯 OEE per Machine</div><div class="chart-container"><canvas id="chart-per-machine"></canvas></div></div>
                 </div>
                 
@@ -254,7 +282,7 @@
                 <div class="card">
                     <div class="card-header">📋 OEE History <span style="font-size:12px;">(klik baris untuk detail)</span></div>
                     <div class="table-wrapper">
-                         <table>
+                        <table>
                             <thead> <tr><th>Date</th><th>Shift</th><th>Machine</th><th>PIC</th><th>Output</th><th>A%</th><th>P%</th><th>Q%</th><th>OEE</th></tr> </thead>
                             <tbody>${filtered.slice(0, 30).map(r => `<tr class="clickable-row" onclick='showRecordDetail(${JSON.stringify(r).replace(/'/g, "\\'")})'>
                                 <td class="wrap-text">${new Date(r.date).toLocaleDateString('id-ID')}</td>
@@ -267,7 +295,7 @@
                                 <td class="${(r.quality||0)>=99?'status-good':'status-bad'}">${(r.quality||0).toFixed(1)}%</td>
                                 <td class="${(r.oee_actual||0)>=88?'status-good':'status-bad'}">${(r.oee_actual||0).toFixed(1)}%</td>
                             </tr>`).join('') || '<tr><td colspan="9" style="text-align:center">Tidak ada data</td></tr>'}</tbody>
-                         </table>
+                        </table>
                     </div>
                 </div>
             </div>`;
@@ -292,23 +320,143 @@
 
         function renderDailyChart(records) {
             let ctx = document.getElementById('daily-oee-chart'); if(!ctx) return;
+            
+            // Dapatkan semua tanggal dalam rentang filter
+            let allDates = getAllDatesInRange(filters.startDate, filters.endDate);
+            
+            // Buat map untuk data OEE per tanggal (rata-rata jika multiple records dalam 1 hari)
             let dailyMap = new Map();
-            records.forEach(r => { if(r.date && r.oee_actual) { let existing = dailyMap.get(r.date) || { total:0, count:0 }; existing.total += r.oee_actual; existing.count++; dailyMap.set(r.date, existing); } });
-            let sortedDates = Array.from(dailyMap.keys()).sort((a,b)=>new Date(a)-new Date(b));
-            let dailyAvg = sortedDates.map(d => dailyMap.get(d).total / dailyMap.get(d).count);
-            let labels = sortedDates.map(d => new Date(d).toLocaleDateString('id-ID',{day:'2-digit',month:'2-digit'}));
+            records.forEach(r => { 
+                if(r.date && r.oee_actual) {
+                    let existing = dailyMap.get(r.date) || { total: 0, count: 0 };
+                    existing.total += r.oee_actual;
+                    existing.count++;
+                    dailyMap.set(r.date, existing);
+                }
+            });
+            
+            // Buat array data untuk semua tanggal (yang tidak ada data = null)
+            let dailyData = allDates.map(date => {
+                if(dailyMap.has(date)) {
+                    return dailyMap.get(date).total / dailyMap.get(date).count;
+                }
+                return null; // null berarti tidak ada data
+            });
+            
+            let labels = allDates.map(d => new Date(d).toLocaleDateString('id-ID', { day:'2-digit', month:'2-digit' }));
+            
             if(chartInstances.daily) chartInstances.daily.destroy();
-            chartInstances.daily = new Chart(ctx, { type:'line', data:{ labels, datasets:[{ label:'OEE Actual (%)', data:dailyAvg, borderColor:'#667eea', backgroundColor:'rgba(102,125,234,0.1)', tension:0.3, fill:true, pointBackgroundColor:dailyAvg.map(v=>v>=88?'#10b981':'#ef4444'), pointRadius:5 }] }, options:{ responsive:true, maintainAspectRatio:false, layout:{ padding:{ top:35, bottom:15, left:10, right:10 } }, scales:{ y:{ beginAtZero:true, max:100, title:{display:true, text:'OEE (%)'} }, x:{ ticks:{ maxRotation:45, minRotation:45 } } }, plugins:{ tooltip:{callbacks:{label:(ctx)=>`OEE: ${ctx.raw.toFixed(1)}%`}}, datalabels:{ anchor: function(context) { return context.dataset.data[context.dataIndex] >= 88 ? 'start' : 'end'; }, align: function(context) { return context.dataset.data[context.dataIndex] >= 88 ? 'bottom' : 'top'; }, offset: 8, formatter:(v)=>v!==null?v.toFixed(1)+'%':'', font:{weight:'bold',size:10}, color:'#333', backgroundColor:'rgba(255,255,255,0.8)', padding:{left:4,right:4,top:2,bottom:2}, borderRadius:4 } } } });
+            
+            chartInstances.daily = new Chart(ctx, { 
+                type: 'line', 
+                data: { 
+                    labels: labels, 
+                    datasets: [{
+                        label: 'OEE Actual (%)', 
+                        data: dailyData, 
+                        borderColor: '#667eea', 
+                        backgroundColor: 'rgba(102,125,234,0.1)', 
+                        tension: 0.3, 
+                        fill: true,
+                        pointBackgroundColor: dailyData.map(v => v !== null ? (v >= 88 ? '#10b981' : '#ef4444') : '#94a3b8'),
+                        pointBorderColor: '#fff',
+                        pointRadius: dailyData.map(v => v !== null ? 5 : 3),
+                        pointHoverRadius: 7,
+                        spanGaps: false
+                    }] 
+                }, 
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    layout: { padding: { top: 35, bottom: 15, left: 10, right: 10 } },
+                    scales: { 
+                        y: { beginAtZero: true, max: 100, title: { display: true, text: 'OEE (%)' } }, 
+                        x: { title: { display: true, text: 'Tanggal' }, ticks: { maxRotation: 45, minRotation: 45, autoSkip: true, maxTicksLimit: 15 } }
+                    }, 
+                    plugins: { 
+                        tooltip: { 
+                            callbacks: { 
+                                label: (ctx) => ctx.raw !== null ? `OEE: ${ctx.raw.toFixed(1)}%` : 'Tidak ada data'
+                            } 
+                        },
+                        datalabels: {
+                            anchor: function(context) { 
+                                let val = context.dataset.data[context.dataIndex];
+                                if(val === null) return false;
+                                return val >= 88 ? 'start' : 'end'; 
+                            },
+                            align: function(context) { 
+                                let val = context.dataset.data[context.dataIndex];
+                                if(val === null) return false;
+                                return val >= 88 ? 'bottom' : 'top'; 
+                            },
+                            offset: 8,
+                            formatter: (v) => v !== null ? v.toFixed(1) + '%' : '',
+                            font: { weight: 'bold', size: 10 },
+                            color: '#333',
+                            backgroundColor: 'rgba(255,255,255,0.8)',
+                            padding: { left: 4, right: 4, top: 2, bottom: 2 },
+                            borderRadius: 4
+                        }
+                    } 
+                } 
+            });
         }
 
         function renderTrendChart() {
             let ctx = document.getElementById('chart-trend'); if(!ctx) return;
-            let year = new Date().getFullYear(), months = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
-            let monthly = Array(12).fill().map(()=>[]);
-            allOEERecords.forEach(r => { if(r.date && new Date(r.date).getFullYear()===year && (filters.shift==='all'||r.shift===filters.shift) && (filters.machine==='all'||r.machine_name===filters.machine)) monthly[new Date(r.date).getMonth()].push(r.oee_actual||0); });
-            let avg = monthly.map(arr=>arr.length?arr.reduce((a,b)=>a+b,0)/arr.length:null);
+            let year = new Date().getFullYear(), months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+            let monthly = Array(12).fill().map(() => []);
+            allOEERecords.forEach(r => { 
+                if(r.date && new Date(r.date).getFullYear() === year && 
+                   (filters.shift === 'all' || r.shift === filters.shift) && 
+                   (filters.machine === 'all' || r.machine_name === filters.machine)) {
+                    monthly[new Date(r.date).getMonth()].push(r.oee_actual || 0);
+                }
+            });
+            let avg = monthly.map(arr => arr.length ? arr.reduce((a,b) => a+b, 0)/arr.length : null);
             if(chartInstances.trend) chartInstances.trend.destroy();
-            chartInstances.trend = new Chart(ctx, { type:'line', data:{ labels:months, datasets:[{ label:`Rata-rata OEE ${year}`, data:avg, borderColor:'#667eea', backgroundColor:'rgba(102,125,234,0.1)', tension:0.4, fill:true, pointBackgroundColor:avg.map(v=>v&&v>=88?'#10b981':'#ef4444'), pointRadius:5 }] }, options:{ responsive:true, maintainAspectRatio:false, layout:{ padding:{ top:35, bottom:15, left:10, right:10 } }, scales:{ y:{ beginAtZero:true, max:100, title:{display:true, text:'OEE (%)'} } }, plugins:{ datalabels:{ anchor: function(context) { return context.dataset.data[context.dataIndex] >= 88 ? 'start' : 'end'; }, align: function(context) { return context.dataset.data[context.dataIndex] >= 88 ? 'bottom' : 'top'; }, offset: 8, formatter:(v)=>v!==null?v.toFixed(1)+'%':'', font:{weight:'bold',size:10}, color:'#333', backgroundColor:'rgba(255,255,255,0.8)', padding:{left:4,right:4,top:2,bottom:2}, borderRadius:4 } } } });
+            chartInstances.trend = new Chart(ctx, { 
+                type: 'line', 
+                data: { 
+                    labels: months, 
+                    datasets: [{ 
+                        label: `Rata-rata OEE ${year}`, 
+                        data: avg, 
+                        borderColor: '#667eea', 
+                        backgroundColor: 'rgba(102,125,234,0.1)', 
+                        tension: 0.4, 
+                        fill: true,
+                        pointBackgroundColor: avg.map(v => v && v >= 88 ? '#10b981' : (v ? '#ef4444' : '#94a3b8')), 
+                        pointRadius: 5 
+                    }] 
+                }, 
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    layout: { padding: { top: 35, bottom: 15, left: 10, right: 10 } },
+                    scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: 'OEE (%)' } } },
+                    plugins: { 
+                        datalabels: { 
+                            anchor: function(context) { 
+                                let val = context.dataset.data[context.dataIndex];
+                                return val && val >= 88 ? 'start' : 'end';
+                            },
+                            align: function(context) { 
+                                let val = context.dataset.data[context.dataIndex];
+                                return val && val >= 88 ? 'bottom' : 'top';
+                            },
+                            offset: 8, 
+                            formatter: (v) => v !== null ? v.toFixed(1) + '%' : '', 
+                            font: { weight: 'bold', size: 10 }, 
+                            color: '#333', 
+                            backgroundColor: 'rgba(255,255,255,0.8)', 
+                            padding: { left: 4, right: 4, top: 2, bottom: 2 }, 
+                            borderRadius: 4 
+                        } 
+                    } 
+                } 
+            });
         }
         
         function renderPerMachineChart(records) { 
@@ -347,7 +495,7 @@
         function renderManagementLogin() { return `<div class="container-main"><div class="card" style="max-width:500px;margin:60px auto;text-align:center"><div style="font-size:48px">🔒</div><h3>Management Access</h3><input type="password" id="mgmt-password" class="input-field my-3"><button class="btn btn-primary w-full" onclick="unlockManagement()">Unlock</button></div></div>`; }
         function unlockManagement() { if(document.getElementById('mgmt-password').value===MANAGEMENT_PASSWORD) { isManagementUnlocked=true; renderApp(); showToast('Management unlocked','success'); } else showToast('Wrong password','error'); }
         
-        function renderManagementPage() { return `<div class="container-main"><div class="card"><div class="card-header">⚙️ Machine Management <button class="btn btn-primary" onclick="openAddMachineModal()">➕ Add</button></div><div class="table-wrapper">\n<table><thead> <tr><th>Machine</th><th>Area</th><th>Target/min</th><th>PIC</th><th>Actions</th></tr> </thead><tbody>${allMachines.map(m=>`<tr><td><strong>${m.machine_name}</strong></td><td>${m.area}</td><td>${m.target_per_minute||0}</td><td>${m.pic||'-'}</td><td><button class="btn btn-secondary" onclick="editMachine('${m.id}')">Edit</button> <button class="btn btn-danger" onclick="confirmDeleteMachine('${m.id}')">Delete</button></td></tr>`).join('')||'<tr><td colspan="5">No machines</td></tr>'}</tbody></table></div></div><div class="card"><div class="card-header">📝 Edit OEE Data</div><div class="filter-section"><input type="date" id="search-date" class="input-field"><select id="search-shift" class="input-field"><option value="all">All Shift</option>${Object.keys(SHIFTS).map(s=>`<option>${s}</option>`)}</select><select id="search-machine" class="input-field"><option value="all">All Machine</option>${[...new Set(allOEERecords.map(r=>r.machine_name))].map(m=>`<option>${m}</option>`)}</select><button class="btn btn-primary" onclick="searchEditRecords()">Search</button></div><div id="edit-records-list" class="table-wrapper mt-4"></div></div></div>`; }
+        function renderManagementPage() { return `<div class="container-main"><div class="card"><div class="card-header">⚙️ Machine Management <button class="btn btn-primary" onclick="openAddMachineModal()">➕ Add</button></div><div class="table-wrapper">\n<table><thead> <tr><th>Machine</th><th>Area</th><th>Target/min</th><th>PIC</th><th>Actions</th> </tr></thead><tbody>${allMachines.map(m=>`<tr><td><strong>${m.machine_name}</strong></td><td>${m.area}</td><td>${m.target_per_minute||0}</td><td>${m.pic||'-'}</td><td><button class="btn btn-secondary" onclick="editMachine('${m.id}')">Edit</button> <button class="btn btn-danger" onclick="confirmDeleteMachine('${m.id}')">Delete</button></td></tr>`).join('')||'<tr><td colspan="5">No machines</td></tr>'}</tbody></table></div></div><div class="card"><div class="card-header">📝 Edit OEE Data</div><div class="filter-section"><input type="date" id="search-date" class="input-field"><select id="search-shift" class="input-field"><option value="all">All Shift</option>${Object.keys(SHIFTS).map(s=>`<option>${s}</option>`)}</select><select id="search-machine" class="input-field"><option value="all">All Machine</option>${[...new Set(allOEERecords.map(r=>r.machine_name))].map(m=>`<option>${m}</option>`)}</select><button class="btn btn-primary" onclick="searchEditRecords()">Search</button></div><div id="edit-records-list" class="table-wrapper mt-4"></div></div></div>`; }
         
         async function searchEditRecords() { let date=document.getElementById('search-date')?.value, shift=document.getElementById('search-shift')?.value, machine=document.getElementById('search-machine')?.value; let list=allOEERecords.filter(r=>(!date||r.date===date)&&(shift==='all'||r.shift===shift)&&(machine==='all'||r.machine_name===machine)); document.getElementById('edit-records-list').innerHTML=`<table><thead><tr><th>Date</th><th>Shift</th><th>Machine</th><th>PIC</th><th>OEE</th><th>Action</th></tr></thead><tbody>${list.map(r=>`<tr><td>${r.date}</td><td>${r.shift}</td><td>${r.machine_name}</td><td>${r.pic}</td><td>${(r.oee_actual||0).toFixed(1)}%</td><td><button class="btn btn-secondary" onclick="loadOEERecordForEdit('${r.id}')">Edit</button></td></tr>`).join('')||'<tr><td colspan="6">No data</td></tr>'}</tbody></table>`; }
         
