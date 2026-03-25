@@ -266,7 +266,7 @@
                 <div class="card">
                     <div class="card-header">📈 OEE per Hari (Periode Filter)</div>
                     <div class="chart-container" style="overflow-x: auto; overflow-y: hidden;">
-                        <canvas id="daily-oee-chart" style="min-width: ${Math.max(800, (new Date(filters.endDate) - new Date(filters.startDate)) / (1000*60*60*24) * 35)}px; height: 360px;"></canvas>
+                        <canvas id="daily-oee-chart" style="min-width: ${Math.max(800, (new Date(filters.endDate) - new Date(filters.startDate)) / (1000*60*60*24) * 40)}px; height: 360px;"></canvas>
                     </div>
                 </div>
                 
@@ -283,8 +283,8 @@
                 <div class="card">
                     <div class="card-header">📋 OEE History <span style="font-size:12px;">(klik baris untuk detail)</span></div>
                     <div class="table-wrapper">
-                        <table>
-                            <thead><tr><th>Date</th><th>Shift</th><th>Machine</th><th>PIC</th><th>Output</th><th>A%</th><th>P%</th><th>Q%</th><th>OEE</th></tr></thead>
+                         <table>
+                            <thead> <tr><th>Date</th><th>Shift</th><th>Machine</th><th>PIC</th><th>Output</th><th>A%</th><th>P%</th><th>Q%</th><th>OEE</th></tr> </thead>
                             <tbody>${filtered.slice(0, 30).map(r => `<tr class="clickable-row" onclick='showRecordDetail(${JSON.stringify(r).replace(/'/g, "\\'")})'>
                                 <td class="wrap-text">${new Date(r.date).toLocaleDateString('id-ID')}</td>
                                 <td class="wrap-text">${r.shift}</td>
@@ -295,8 +295,9 @@
                                 <td class="${(r.performance||0)>=98?'status-good':'status-bad'}">${(r.performance||0).toFixed(1)}%</td>
                                 <td class="${(r.quality||0)>=99?'status-good':'status-bad'}">${(r.quality||0).toFixed(1)}%</td>
                                 <td class="${(r.oee_actual||0)>=88?'status-good':'status-bad'}">${(r.oee_actual||0).toFixed(1)}%</td>
-                            </tr>`).join('') || '<tr><td colspan="9" style="text-align:center">Tidak ada data</td></tr>'}</tbody>
-                        </table>
+                             </tr>`).join('') || '<tr><td colspan="9" style="text-align:center">Tidak ada data</td></tr>'}
+                            </tbody>
+                         </table>
                     </div>
                 </div>
             </div>`;
@@ -324,6 +325,7 @@
             
             let allDates = getAllDatesInRange(filters.startDate, filters.endDate);
             
+            // Buat map untuk data OEE per tanggal (rata-rata jika multiple records dalam 1 hari)
             let dailyMap = new Map();
             records.forEach(r => { 
                 if(r.date && r.oee_actual) {
@@ -334,11 +336,12 @@
                 }
             });
             
+            // Untuk tanggal yang tidak ada data, diisi 0 (agar garis tidak putus)
             let dailyData = allDates.map(date => {
                 if(dailyMap.has(date)) {
                     return dailyMap.get(date).total / dailyMap.get(date).count;
                 }
-                return null;
+                return 0; // diisi 0% untuk tanggal tanpa data
             });
             
             let labels = allDates.map(d => {
@@ -359,9 +362,9 @@
                         backgroundColor: 'rgba(102,125,234,0.1)', 
                         tension: 0.3, 
                         fill: true,
-                        pointBackgroundColor: dailyData.map(v => v !== null ? (v >= 88 ? '#10b981' : '#ef4444') : '#94a3b8'),
+                        pointBackgroundColor: dailyData.map(v => v > 0 ? (v >= 88 ? '#10b981' : '#ef4444') : '#94a3b8'),
                         pointBorderColor: '#fff',
-                        pointRadius: dailyData.map(v => v !== null ? 5 : 3),
+                        pointRadius: dailyData.map(v => v > 0 ? 5 : 2),
                         pointHoverRadius: 7,
                         spanGaps: false
                     }] 
@@ -385,23 +388,23 @@
                     plugins: { 
                         tooltip: { 
                             callbacks: { 
-                                label: (ctx) => ctx.raw !== null ? `OEE: ${ctx.raw.toFixed(1)}%` : 'Tidak ada data'
+                                label: (ctx) => ctx.raw > 0 ? `OEE: ${ctx.raw.toFixed(1)}%` : 'Tidak ada produksi (0%)'
                             } 
                         },
                         legend: { position: 'top' },
                         datalabels: {
                             anchor: function(context) { 
                                 let val = context.dataset.data[context.dataIndex];
-                                if(val === null) return false;
+                                if(val === 0) return 'start';
                                 return val >= 88 ? 'start' : 'end'; 
                             },
                             align: function(context) { 
                                 let val = context.dataset.data[context.dataIndex];
-                                if(val === null) return false;
+                                if(val === 0) return 'bottom';
                                 return val >= 88 ? 'bottom' : 'top'; 
                             },
                             offset: 6,
-                            formatter: (v) => v !== null ? v.toFixed(1) + '%' : '',
+                            formatter: (v) => v > 0 ? v.toFixed(1) + '%' : '0%',
                             font: { weight: 'bold', size: 9 },
                             color: '#333',
                             backgroundColor: 'rgba(255,255,255,0.85)',
@@ -424,7 +427,8 @@
                     monthly[new Date(r.date).getMonth()].push(r.oee_actual || 0);
                 }
             });
-            let avg = monthly.map(arr => arr.length ? arr.reduce((a,b) => a+b, 0)/arr.length : null);
+            // Untuk bulan tanpa data, diisi 0 agar garis tidak putus
+            let avg = monthly.map(arr => arr.length ? arr.reduce((a,b) => a+b, 0)/arr.length : 0);
             if(chartInstances.trend) chartInstances.trend.destroy();
             chartInstances.trend = new Chart(ctx, { 
                 type: 'line', 
@@ -437,8 +441,8 @@
                         backgroundColor: 'rgba(102,125,234,0.1)', 
                         tension: 0.4, 
                         fill: true,
-                        pointBackgroundColor: avg.map(v => v && v >= 88 ? '#10b981' : (v ? '#ef4444' : '#94a3b8')), 
-                        pointRadius: 5 
+                        pointBackgroundColor: avg.map(v => v > 0 ? (v >= 88 ? '#10b981' : '#ef4444') : '#94a3b8'), 
+                        pointRadius: avg.map(v => v > 0 ? 5 : 3)
                     }] 
                 }, 
                 options: { 
@@ -447,17 +451,22 @@
                     layout: { padding: { top: 35, bottom: 15, left: 10, right: 10 } },
                     scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: 'OEE (%)' } } },
                     plugins: { 
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => ctx.raw > 0 ? `OEE: ${ctx.raw.toFixed(1)}%` : 'Tidak ada data (0%)'
+                            }
+                        },
                         datalabels: { 
                             anchor: function(context) { 
                                 let val = context.dataset.data[context.dataIndex];
-                                return val && val >= 88 ? 'start' : 'end';
+                                return val > 0 && val >= 88 ? 'start' : 'end';
                             },
                             align: function(context) { 
                                 let val = context.dataset.data[context.dataIndex];
-                                return val && val >= 88 ? 'bottom' : 'top';
+                                return val > 0 && val >= 88 ? 'bottom' : 'top';
                             },
                             offset: 6, 
-                            formatter: (v) => v !== null ? v.toFixed(1) + '%' : '', 
+                            formatter: (v) => v > 0 ? v.toFixed(1) + '%' : '0%', 
                             font: { weight: 'bold', size: 10 }, 
                             color: '#333', 
                             backgroundColor: 'rgba(255,255,255,0.8)', 
