@@ -53,7 +53,7 @@
         .loading-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 9999; flex-direction: column; gap: 16px; color: white; }
         .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; }
         .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px; margin-bottom: 24px; }
-        .chart-container { position: relative; height: 320px; margin-top: 16px; }
+        .chart-container { position: relative; height: 360px; margin-top: 16px; margin-bottom: 16px; }
         .clickable-row { cursor: pointer; transition: 0.2s; }
         .clickable-row:hover { background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)) !important; color: white; }
         .status-good { color: var(--success); font-weight: 600; }
@@ -62,7 +62,6 @@
         .wrap-text { white-space: normal !important; word-break: break-word; }
         .checkbox-item { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; margin-bottom: 8px; border: 1px solid var(--border); flex-wrap: wrap; }
         .filter-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
-        .target-box { background: linear-gradient(135deg, rgba(102,125,234,0.15), rgba(118,75,162,0.15)); padding: 20px; border-radius: 12px; margin-bottom: 24px; border: 2px solid var(--accent-primary); }
         .detail-item { background: var(--bg-secondary); padding: 12px; border-radius: 8px; border-left: 4px solid var(--accent-primary); margin-bottom: 8px; }
         .edit-mode-badge { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
     </style>
@@ -72,7 +71,6 @@
     <button class="theme-toggle" onclick="toggleTheme()" id="theme-toggle-btn">🌙</button>
 
     <script>
-        // Register datalabels plugin
         Chart.register(ChartDataLabels);
         
         const SUPABASE_URL = 'https://ehespstzpubqkovkykby.supabase.co';
@@ -92,13 +90,9 @@
             endDate: new Date().toISOString().split('T')[0], 
             shift: 'all', 
             machine: 'all', 
-            pic: 'all', 
-            detailLineStopItem: 'all', 
-            detailLineStopType: 'all' 
+            pic: 'all'
         };
-        let clickedRecordFilter = null;
         let currentMachineData = null, currentMachineDetails = null;
-        let customLSMCounter = 0, customLSNMCounter = 0, customMSCounter = 0;
         const MANAGEMENT_PASSWORD = 'admin123';
         const SHIFTS = { 
             'Shift 1': { start: '07:00', end: '15:30', minutes: 510 }, 
@@ -189,79 +183,11 @@
         }
 
         function getFilteredRecords() {
-            let rec = allOEERecords.filter(r => { 
+            return allOEERecords.filter(r => { 
                 if(!r.date) return false; 
                 let d = new Date(r.date), s = new Date(filters.startDate), e = new Date(filters.endDate); 
                 return d >= s && d <= e && (filters.shift === 'all' || r.shift === filters.shift) && (filters.machine === 'all' || r.machine_name === filters.machine) && (filters.pic === 'all' || r.pic === filters.pic); 
             });
-            if(filters.detailLineStopItem !== 'all') {
-                rec = rec.filter(r => { 
-                    let m = false; 
-                    if(filters.detailLineStopType === 'mesin') { 
-                        let d = safeJSONParse(r.line_stop_mesin_data); 
-                        m = d.some(l => l.item === filters.detailLineStopItem); 
-                    } 
-                    if(filters.detailLineStopType === 'non_mesin') { 
-                        let d = safeJSONParse(r.line_stop_non_mesin_data); 
-                        m = d.some(l => l.item === filters.detailLineStopItem); 
-                    } 
-                    return m; 
-                });
-            }
-            return rec;
-        }
-
-        function calculateOEE(formData) {
-            const shiftMinutes = SHIFTS[formData.shift]?.minutes || 0;
-            const targetPerMinute = formData.targetPerMinute || 0;
-            
-            let totalODT = 0;
-            let odtExceeds = [];
-            if (formData.odtData) {
-                formData.odtData.forEach(odt => {
-                    if (odt.checked) {
-                        const actualTime = parseFloat(odt.actualTime || 0);
-                        const standardTime = parseFloat(odt.standardTime || 0);
-                        if (actualTime <= standardTime) {
-                            totalODT += actualTime;
-                        } else {
-                            totalODT += standardTime;
-                            odtExceeds.push({ item: `ODT Exceed - ${odt.name}`, duration: actualTime - standardTime, action: 'Auto-generated from ODT exceed' });
-                        }
-                    }
-                });
-            }
-            let totalLineStopMesin = (formData.lineStopMesinData || []).reduce((s,l) => s + parseFloat(l.duration || 0), 0);
-            let totalLineStopNonMesin = (formData.lineStopNonMesinData || []).reduce((s,l) => s + parseFloat(l.duration || 0), 0);
-            odtExceeds.forEach(ex => totalLineStopNonMesin += ex.duration);
-            
-            const availabilityActual = shiftMinutes - totalODT > 0 ? ((shiftMinutes - totalODT - totalLineStopMesin - totalLineStopNonMesin) / (shiftMinutes - totalODT)) * 100 : 0;
-            const availability365 = shiftMinutes > 0 ? ((shiftMinutes - totalODT - totalLineStopMesin - totalLineStopNonMesin) / shiftMinutes) * 100 : 0;
-            
-            let performance = 100;
-            if (targetPerMinute > 0) {
-                const availableTime = shiftMinutes - totalODT - totalLineStopMesin - totalLineStopNonMesin;
-                const idealOutput = availableTime * targetPerMinute;
-                performance = idealOutput > 0 ? (formData.actualOutput / idealOutput) * 100 : 0;
-            }
-            let quality = 100;
-            if (targetPerMinute > 0 && formData.actualOutput > 0) {
-                quality = ((formData.actualOutput - formData.reject) / formData.actualOutput) * 100;
-            }
-            const oeeActual = (availabilityActual * performance * quality) / 10000;
-            const oee365 = (availability365 * performance * quality) / 10000;
-            
-            return { 
-                availabilityActual: Math.max(0, Math.min(100, availabilityActual)), 
-                availability365: Math.max(0, Math.min(100, availability365)), 
-                performance: Math.max(0, Math.min(100, performance)), 
-                quality: Math.max(0, Math.min(100, quality)), 
-                oeeActual: Math.max(0, Math.min(100, oeeActual)), 
-                oee365: Math.max(0, Math.min(100, oee365)), 
-                totalODT, totalLineStopMesin, totalLineStopNonMesin, odtExceeds, 
-                remainingTime: shiftMinutes - totalODT - totalLineStopMesin - totalLineStopNonMesin, 
-                shiftMinutes 
-            };
         }
 
         function renderDashboard() {
@@ -275,9 +201,6 @@
             let machines = [...new Set(filtered.map(r => r.machine_name).filter(Boolean))];
             let pics = [...new Set(filtered.map(r => r.pic).filter(Boolean))];
             
-            let startDateDisplay = new Date(filters.startDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long' });
-            let endDateDisplay = new Date(filters.endDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-            
             return `<div class="container-main">
                 <div class="card">
                     <div class="card-header">🔍 Filter Data</div>
@@ -286,10 +209,7 @@
                         <div><label class="label">End Date</label><input type="date" id="filter-end-date" value="${filters.endDate}" class="input-field" onchange="updateFilter('endDate',this.value)"></div>
                         <div><label class="label">Shift</label><select id="filter-shift" class="input-field" onchange="updateFilter('shift',this.value)"><option value="all">All Shifts</option>${Object.keys(SHIFTS).map(s => `<option ${filters.shift === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
                         <div><label class="label">Machine</label><select id="filter-machine" class="input-field" onchange="updateFilter('machine',this.value)"><option value="all">All Machines</option>${machines.map(m => `<option ${filters.machine === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
-                        <div><label class="label">PIC / Operator</label><select id="filter-pic" class="input-field" onchange="updateFilter('pic',this.value)"><option value="all">All Operators</option>${pics.map(p => `<option ${filters.pic === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
-                    </div>
-                    <div style="margin-top: 12px; padding: 12px; background: rgba(102,125,234,0.1); border-radius: 8px;">
-                        <span>📅 Menampilkan data dari <strong>${startDateDisplay}</strong> hingga <strong>${endDateDisplay}</strong> (${filtered.length} records)</span>
+                        <div><label class="label">PIC</label><select id="filter-pic" class="input-field" onchange="updateFilter('pic',this.value)"><option value="all">All Operators</option>${pics.map(p => `<option ${filters.pic === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
                     </div>
                 </div>
                 
@@ -317,946 +237,147 @@
                 </div>
                 
                 <div class="card">
-                    <div class="card-header">📈 OEE per Hari (Periode Filter)</div>
-                    <div class="chart-container">
-                        <canvas id="daily-oee-chart"></canvas>
-                    </div>
+                    <div class="card-header">📈 OEE per Hari</div>
+                    <div class="chart-container"><canvas id="daily-oee-chart"></canvas></div>
                 </div>
                 
                 <div class="grid-2">
-                    <div class="card">
-                        <div class="card-header">📈 AVG OEE per Bulan (Tahun Berjalan)</div>
-                        <div class="chart-container"><canvas id="chart-trend"></canvas></div>
-                    </div>
-                    <div class="card">
-                        <div class="card-header">🎯 OEE Actual per Machine</div>
-                        <div class="chart-container"><canvas id="chart-per-machine"></canvas></div>
-                    </div>
+                    <div class="card"><div class="card-header">📈 AVG OEE per Bulan</div><div class="chart-container"><canvas id="chart-trend"></canvas></div></div>
+                    <div class="card"><div class="card-header">🎯 OEE per Machine</div><div class="chart-container"><canvas id="chart-per-machine"></canvas></div></div>
                 </div>
                 
                 <div class="grid-2">
-                    <div class="card">
-                        <div class="card-header">📊 A-P-Q-A365 Breakdown</div>
-                        <div class="chart-container"><canvas id="chart-apq"></canvas></div>
-                    </div>
-                    <div class="card">
-                        <div class="card-header">⏱️ ODT Top 10 (menit)</div>
-                        <div class="chart-container"><canvas id="chart-odt"></canvas></div>
-                    </div>
+                    <div class="card"><div class="card-header">📊 A-P-Q-A365 Breakdown</div><div class="chart-container"><canvas id="chart-apq"></canvas></div></div>
+                    <div class="card"><div class="card-header">⏱️ ODT Top 10 (menit)</div><div class="chart-container"><canvas id="chart-odt"></canvas></div></div>
                 </div>
                 
                 <div class="card">
-                    <div class="card-header">📋 OEE History <span style="font-size:12px; font-weight:normal;">(klik baris untuk detail lengkap)</span></div>
+                    <div class="card-header">📋 OEE History <span style="font-size:12px;">(klik baris untuk detail)</span></div>
                     <div class="table-wrapper">
-                        <table>
-                            <thead>
-                                <tr><th>Date</th><th>Shift</th><th>Machine</th><th>PIC</th><th>Batch</th><th>Output</th><th>Reject</th><th>A%</th><th>P%</th><th>Q%</th><th>OEE Actual</th><th>Notes</th></tr>
-                            </thead>
-                            <tbody>
-                                ${filtered.slice(0, 50).map(r => `
-                                    <tr class="clickable-row" onclick='showRecordDetail(${JSON.stringify(r).replace(/'/g, "\\'")})'>
-                                        <td class="wrap-text">${new Date(r.date).toLocaleDateString('id-ID')}</td>
-                                        <td class="wrap-text">${r.shift}</td>
-                                        <td class="wrap-text"><strong>${r.machine_name}</strong></td>
-                                        <td class="wrap-text">${r.pic}</td>
-                                        <td class="wrap-text">${r.batch_number || '-'}</td>
-                                        <td class="wrap-text">${(r.actual_output || 0).toLocaleString()}</td>
-                                        <td class="wrap-text">${r.reject || 0}</td>
-                                        <td class="${(r.availability_actual || 0) >= 93 ? 'status-good' : 'status-bad'}">${(r.availability_actual || 0).toFixed(1)}%</td>
-                                        <td class="${(r.performance || 0) >= 98 ? 'status-good' : 'status-bad'}">${(r.performance || 0).toFixed(1)}%</td>
-                                        <td class="${(r.quality || 0) >= 99 ? 'status-good' : 'status-bad'}">${(r.quality || 0).toFixed(1)}%</td>
-                                        <td class="${(r.oee_actual || 0) >= 88 ? 'status-good' : 'status-bad'}">${(r.oee_actual || 0).toFixed(1)}%</td>
-                                        <td class="wrap-text">${(r.notes || '-').substring(0, 50)}</td>
-                                    </tr>
-                                `).join('') || '<tr><td colspan="12" style="text-align:center; padding:40px;">Tidak ada data pada periode ini</td></tr>'}
-                            </tbody>
-                        </table>
+                         <table>
+                            <thead> <tr><th>Date</th><th>Shift</th><th>Machine</th><th>PIC</th><th>Output</th><th>A%</th><th>P%</th><th>Q%</th><th>OEE</th></tr> </thead>
+                            <tbody>${filtered.slice(0, 30).map(r => `<tr class="clickable-row" onclick='showRecordDetail(${JSON.stringify(r).replace(/'/g, "\\'")})'>
+                                <td class="wrap-text">${new Date(r.date).toLocaleDateString('id-ID')}</td>
+                                <td class="wrap-text">${r.shift}</td>
+                                <td class="wrap-text">${r.machine_name}</td>
+                                <td class="wrap-text">${r.pic}</td>
+                                <td class="wrap-text">${(r.actual_output || 0).toLocaleString()}</td>
+                                <td class="${(r.availability_actual||0)>=93?'status-good':'status-bad'}">${(r.availability_actual||0).toFixed(1)}%</td>
+                                <td class="${(r.performance||0)>=98?'status-good':'status-bad'}">${(r.performance||0).toFixed(1)}%</td>
+                                <td class="${(r.quality||0)>=99?'status-good':'status-bad'}">${(r.quality||0).toFixed(1)}%</td>
+                                <td class="${(r.oee_actual||0)>=88?'status-good':'status-bad'}">${(r.oee_actual||0).toFixed(1)}%</td>
+                            </tr>`).join('') || '<tr><td colspan="9" style="text-align:center">Tidak ada data</td></tr>'}</tbody>
+                         </table>
                     </div>
                 </div>
             </div>`;
         }
 
         function showRecordDetail(r) {
-            let odt = safeJSONParse(r.odt_data);
-            let lsm = safeJSONParse(r.line_stop_mesin_data);
-            let lsnm = safeJSONParse(r.line_stop_non_mesin_data);
-            let ms = safeJSONParse(r.minor_stop_data);
-            
-            let totalODT = odt.filter(o => o.checked).reduce((s,o) => s + Math.min(o.actualTime || 0, o.standardTime || 0), 0);
-            let totalLSM = lsm.reduce((s,l) => s + (l.duration || 0), 0);
-            let totalLSNM = lsnm.reduce((s,l) => s + (l.duration || 0), 0);
-            
-            let modal = `
-                <div style="max-height:80vh; overflow-y:auto">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                        <h3 style="font-size:24px; font-weight:700; color:var(--accent-primary);">📋 Detail OEE Record</h3>
-                        <button class="btn btn-secondary" onclick="closeModal()" style="padding:8px 16px;">✕ Tutup</button>
-                    </div>
-                    
-                    <div class="detail-section" style="margin-bottom:20px;">
-                        <h4 style="font-weight:700; margin-bottom:12px;">📌 Informasi Umum</h4>
-                        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(250px,1fr)); gap:12px;">
-                            <div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">Tanggal</div><div><strong>${new Date(r.date).toLocaleDateString('id-ID', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}</strong></div></div>
-                            <div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">Shift</div><div><strong>${r.shift}</strong></div></div>
-                            <div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">Mesin</div><div><strong>${r.machine_name}</strong></div></div>
-                            <div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">PIC / Operator</div><div>${r.pic}</div></div>
-                            <div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">Kode Produk</div><div>${r.product_code || '-'}</div></div>
-                            <div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">Nomor Batch</div><div>${r.batch_number || '-'}</div></div>
-                            <div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">Catatan</div><div>${r.notes || '-'}</div></div>
-                        </div>
-                    </div>
-                    
-                    <div class="detail-section" style="margin-bottom:20px;">
-                        <h4 style="font-weight:700; margin-bottom:12px;">📊 Hasil Perhitungan OEE</h4>
-                        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px,1fr)); gap:12px;">
-                            <div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">Availability Actual</div><div class="${(r.availability_actual || 0) >= 93 ? 'status-good' : 'status-bad'}">${(r.availability_actual || 0).toFixed(1)}%</div></div>
-                            <div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">Availability 365</div><div>${(r.availability_365 || 0).toFixed(1)}%</div></div>
-                            <div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">Performance</div><div class="${(r.performance || 0) >= 98 ? 'status-good' : 'status-bad'}">${(r.performance || 0).toFixed(1)}%</div></div>
-                            <div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">Quality</div><div class="${(r.quality || 0) >= 99 ? 'status-good' : 'status-bad'}">${(r.quality || 0).toFixed(1)}%</div></div>
-                            <div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">OEE Actual</div><div class="${(r.oee_actual || 0) >= 88 ? 'status-good' : 'status-bad'}">${(r.oee_actual || 0).toFixed(1)}%</div></div>
-                            <div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">OEE 365</div><div>${(r.oee_365 || 0).toFixed(1)}%</div></div>
-                            <div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">Actual Output</div><div>${(r.actual_output || 0).toLocaleString()} unit</div></div>
-                            <div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">Reject</div><div>${r.reject || 0} unit</div></div>
-                        </div>
-                    </div>
-                    
-                    <div class="detail-section" style="margin-bottom:20px;">
-                        <h4 style="font-weight:700; margin-bottom:12px;">⏱️ ODT (Operational Downtime) - Total: ${totalODT.toFixed(1)} menit</h4>
-                        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(300px,1fr)); gap:8px;">
-                            ${odt.filter(o => o.checked).map(o => `<div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">${o.name}</div><div>${Math.min(o.actualTime || 0, o.standardTime)} / ${o.standardTime} menit</div></div>`).join('') || '<div>Tidak ada ODT</div>'}
-                        </div>
-                    </div>
-                    
-                    <div class="detail-section" style="margin-bottom:20px;">
-                        <h4 style="font-weight:700; margin-bottom:12px;">🔧 Line Stop Mesin - Total: ${totalLSM.toFixed(1)} menit</h4>
-                        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(300px,1fr)); gap:8px;">
-                            ${lsm.map(l => `<div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">${l.item}</div><div>${l.duration} menit${l.action ? `<br><span style="font-size:11px;">Action: ${l.action}</span>` : ''}</div></div>`).join('') || '<div>Tidak ada Line Stop Mesin</div>'}
-                        </div>
-                    </div>
-                    
-                    <div class="detail-section" style="margin-bottom:20px;">
-                        <h4 style="font-weight:700; margin-bottom:12px;">⚠️ Line Stop Non Mesin - Total: ${totalLSNM.toFixed(1)} menit</h4>
-                        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(300px,1fr)); gap:8px;">
-                            ${lsnm.map(l => `<div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">${l.item}</div><div>${l.duration} menit${l.action ? `<br><span style="font-size:11px;">Action: ${l.action}</span>` : ''}</div></div>`).join('') || '<div>Tidak ada Line Stop Non Mesin</div>'}
-                        </div>
-                    </div>
-                    
-                    <div class="detail-section">
-                        <h4 style="font-weight:700; margin-bottom:12px;">⏸️ Minor Stop - Total: ${r.minor_stop_count || 0} kali</h4>
-                        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(300px,1fr)); gap:8px;">
-                            ${ms.map(m => `<div class="detail-item"><div style="font-size:11px; color:var(--text-secondary);">${m.item}</div><div>${m.frequency} kali</div></div>`).join('') || '<div>Tidak ada Minor Stop</div>'}
-                        </div>
-                    </div>
-                </div>`;
-                
-            let mDiv = document.createElement('div'); 
-            mDiv.className = 'modal-overlay'; 
-            mDiv.innerHTML = `<div class="modal-content">${modal}</div>`; 
-            mDiv.onclick = e => { if(e.target === mDiv) closeModal(); }; 
-            document.body.appendChild(mDiv);
+            let odt = safeJSONParse(r.odt_data), lsm = safeJSONParse(r.line_stop_mesin_data), lsnm = safeJSONParse(r.line_stop_non_mesin_data);
+            let modal = `<div><h3 style="font-size:20px;margin-bottom:16px">📋 Detail OEE - ${r.machine_name} (${new Date(r.date).toLocaleDateString()})</h3>
+            <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px">
+                <div><strong>Shift:</strong> ${r.shift}</div><div><strong>PIC:</strong> ${r.pic}</div>
+                <div><strong>Batch:</strong> ${r.batch_number||'-'}</div><div><strong>Output:</strong> ${r.actual_output} | Reject: ${r.reject}</div>
+            </div>
+            <div style="background:var(--bg-secondary);padding:16px;border-radius:12px;margin-bottom:16px">
+                <strong>OEE: ${(r.oee_actual||0).toFixed(1)}%</strong> | A: ${(r.availability_actual||0).toFixed(1)}% | P: ${(r.performance||0).toFixed(1)}% | Q: ${(r.quality||0).toFixed(1)}%
+            </div>
+            <div><strong>ODT:</strong><ul>${odt.filter(o=>o.checked).map(o=>`<li>${o.name}: ${Math.min(o.actualTime||0,o.standardTime)}/${o.standardTime} min</li>`).join('')||'<li>-</li>'}</ul></div>
+            <div><strong>Line Stop Mesin:</strong><ul>${lsm.map(l=>`<li>${l.item}: ${l.duration} min</li>`).join('')||'<li>-</li>'}</ul></div>
+            <div><strong>Line Stop Non Mesin:</strong><ul>${lsnm.map(l=>`<li>${l.item}: ${l.duration} min</li>`).join('')||'<li>-</li>'}</ul></div>
+            <button class="btn btn-primary mt-4" onclick="closeModal()">Tutup</button></div>`;
+            let mDiv = document.createElement('div'); mDiv.className = 'modal-overlay'; mDiv.innerHTML = `<div class="modal-content">${modal}</div>`; mDiv.onclick = e => { if(e.target === mDiv) closeModal(); }; document.body.appendChild(mDiv);
         }
 
         function renderDailyChart(records) {
-            let ctx = document.getElementById('daily-oee-chart');
-            if(!ctx) return;
-            
+            let ctx = document.getElementById('daily-oee-chart'); if(!ctx) return;
             let dailyMap = new Map();
-            records.forEach(r => { 
-                if(r.date && r.oee_actual) {
-                    let dateKey = r.date;
-                    if(!dailyMap.has(dateKey)) {
-                        dailyMap.set(dateKey, { total: 0, count: 0 });
-                    }
-                    let existing = dailyMap.get(dateKey);
-                    existing.total += r.oee_actual;
-                    existing.count += 1;
-                    dailyMap.set(dateKey, existing);
-                }
-            });
-            
-            let sortedDates = Array.from(dailyMap.keys()).sort((a,b) => new Date(a) - new Date(b));
+            records.forEach(r => { if(r.date && r.oee_actual) { let existing = dailyMap.get(r.date) || { total:0, count:0 }; existing.total += r.oee_actual; existing.count++; dailyMap.set(r.date, existing); } });
+            let sortedDates = Array.from(dailyMap.keys()).sort((a,b)=>new Date(a)-new Date(b));
             let dailyAvg = sortedDates.map(d => dailyMap.get(d).total / dailyMap.get(d).count);
-            let dailyLabels = sortedDates.map(d => new Date(d).toLocaleDateString('id-ID', { day:'2-digit', month:'2-digit' }));
-            
+            let labels = sortedDates.map(d => new Date(d).toLocaleDateString('id-ID',{day:'2-digit',month:'2-digit'}));
             if(chartInstances.daily) chartInstances.daily.destroy();
-            
-            chartInstances.daily = new Chart(ctx, { 
-                type: 'line', 
-                data: { 
-                    labels: dailyLabels, 
-                    datasets: [{
-                        label: 'OEE Actual (%)', 
-                        data: dailyAvg, 
-                        borderColor: '#667eea', 
-                        backgroundColor: 'rgba(102,125,234,0.1)', 
-                        tension: 0.3, 
-                        fill: true,
-                        pointBackgroundColor: dailyAvg.map(v => v >= 88 ? '#10b981' : '#ef4444'), 
-                        pointBorderColor: '#fff',
-                        pointRadius: 6,
-                        pointHoverRadius: 8
-                    }] 
-                }, 
-                options: { 
-                    responsive: true, 
-                    maintainAspectRatio: false,
-                    layout: { padding: { top: 25, bottom: 10, left: 10, right: 10 } },
-                    scales: { 
-                        y: { beginAtZero: true, max: 100, title: { display: true, text: 'OEE (%)' } }, 
-                        x: { title: { display: true, text: 'Tanggal' }, ticks: { maxRotation: 45, minRotation: 45 } }
-                    }, 
-                    plugins: { 
-                        tooltip: { callbacks: { label: (ctx) => `OEE: ${ctx.raw.toFixed(1)}%` } },
-                        legend: { position: 'top' },
-                        datalabels: {
-                            anchor: 'end',
-                            align: 'top',
-                            offset: 4,
-                            formatter: (value, context) => {
-                                return value !== null ? value.toFixed(1) + '%' : '';
-                            },
-                            font: { weight: 'bold', size: 10 },
-                            color: '#333'
-                        }
-                    } 
-                } 
-            });
+            chartInstances.daily = new Chart(ctx, { type:'line', data:{ labels, datasets:[{ label:'OEE Actual (%)', data:dailyAvg, borderColor:'#667eea', backgroundColor:'rgba(102,125,234,0.1)', tension:0.3, fill:true, pointBackgroundColor:dailyAvg.map(v=>v>=88?'#10b981':'#ef4444'), pointRadius:5 }] }, options:{ responsive:true, maintainAspectRatio:false, layout:{ padding:{ top:35, bottom:15, left:10, right:10 } }, scales:{ y:{ beginAtZero:true, max:100, title:{display:true, text:'OEE (%)'} }, x:{ ticks:{ maxRotation:45, minRotation:45 } } }, plugins:{ tooltip:{callbacks:{label:(ctx)=>`OEE: ${ctx.raw.toFixed(1)}%`}}, datalabels:{ anchor: function(context) { return context.dataset.data[context.dataIndex] >= 88 ? 'start' : 'end'; }, align: function(context) { return context.dataset.data[context.dataIndex] >= 88 ? 'bottom' : 'top'; }, offset: 8, formatter:(v)=>v!==null?v.toFixed(1)+'%':'', font:{weight:'bold',size:10}, color:'#333', backgroundColor:'rgba(255,255,255,0.8)', padding:{left:4,right:4,top:2,bottom:2}, borderRadius:4 } } } });
         }
 
         function renderTrendChart() {
-            let ctx = document.getElementById('chart-trend');
-            if(!ctx) return;
-            let year = new Date().getFullYear();
-            let months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-            let monthly = Array(12).fill().map(() => []);
-            
-            allOEERecords.forEach(r => { 
-                if(r.date && new Date(r.date).getFullYear() === year && 
-                   (filters.shift === 'all' || r.shift === filters.shift) && 
-                   (filters.machine === 'all' || r.machine_name === filters.machine) && 
-                   (filters.pic === 'all' || r.pic === filters.pic)) {
-                    monthly[new Date(r.date).getMonth()].push(r.oee_actual || 0);
-                }
-            });
-            
-            let avg = monthly.map(arr => arr.length ? arr.reduce((a,b) => a+b, 0)/arr.length : null);
-            
+            let ctx = document.getElementById('chart-trend'); if(!ctx) return;
+            let year = new Date().getFullYear(), months = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+            let monthly = Array(12).fill().map(()=>[]);
+            allOEERecords.forEach(r => { if(r.date && new Date(r.date).getFullYear()===year && (filters.shift==='all'||r.shift===filters.shift) && (filters.machine==='all'||r.machine_name===filters.machine)) monthly[new Date(r.date).getMonth()].push(r.oee_actual||0); });
+            let avg = monthly.map(arr=>arr.length?arr.reduce((a,b)=>a+b,0)/arr.length:null);
             if(chartInstances.trend) chartInstances.trend.destroy();
-            chartInstances.trend = new Chart(ctx, { 
-                type: 'line', 
-                data: { 
-                    labels: months, 
-                    datasets: [{ 
-                        label: `Rata-rata OEE ${year}`, 
-                        data: avg, 
-                        borderColor: '#667eea', 
-                        backgroundColor: 'rgba(102,125,234,0.1)', 
-                        tension: 0.4, 
-                        fill: true,
-                        pointBackgroundColor: avg.map(v => v && v >= 88 ? '#10b981' : '#ef4444'), 
-                        pointRadius: 5 
-                    }] 
-                }, 
-                options: { 
-                    responsive: true, 
-                    maintainAspectRatio: false,
-                    layout: { padding: { top: 25, bottom: 10, left: 10, right: 10 } },
-                    scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: 'OEE (%)' } } },
-                    plugins: { 
-                        datalabels: {
-                            anchor: 'end',
-                            align: 'top',
-                            offset: 4,
-                            formatter: (value, context) => {
-                                return value !== null ? value.toFixed(1) + '%' : '';
-                            },
-                            font: { weight: 'bold', size: 10 },
-                            color: '#333'
-                        }
-                    }
-                } 
-            });
+            chartInstances.trend = new Chart(ctx, { type:'line', data:{ labels:months, datasets:[{ label:`Rata-rata OEE ${year}`, data:avg, borderColor:'#667eea', backgroundColor:'rgba(102,125,234,0.1)', tension:0.4, fill:true, pointBackgroundColor:avg.map(v=>v&&v>=88?'#10b981':'#ef4444'), pointRadius:5 }] }, options:{ responsive:true, maintainAspectRatio:false, layout:{ padding:{ top:35, bottom:15, left:10, right:10 } }, scales:{ y:{ beginAtZero:true, max:100, title:{display:true, text:'OEE (%)'} } }, plugins:{ datalabels:{ anchor: function(context) { return context.dataset.data[context.dataIndex] >= 88 ? 'start' : 'end'; }, align: function(context) { return context.dataset.data[context.dataIndex] >= 88 ? 'bottom' : 'top'; }, offset: 8, formatter:(v)=>v!==null?v.toFixed(1)+'%':'', font:{weight:'bold',size:10}, color:'#333', backgroundColor:'rgba(255,255,255,0.8)', padding:{left:4,right:4,top:2,bottom:2}, borderRadius:4 } } } });
         }
         
         function renderPerMachineChart(records) { 
-            let ctx = document.getElementById('chart-per-machine'); 
-            if(!ctx) return; 
-            let stats = {}; 
-            records.forEach(r => { 
-                if(r.machine_name) { 
-                    if(!stats[r.machine_name]) stats[r.machine_name] = { t: 0, c: 0 }; 
-                    stats[r.machine_name].t += r.oee_actual || 0; 
-                    stats[r.machine_name].c++; 
-                } 
-            }); 
-            let labels = Object.keys(stats); 
-            let values = labels.map(l => stats[l].t / stats[l].c); 
-            if(chartInstances.perMachine) chartInstances.perMachine.destroy(); 
-            chartInstances.perMachine = new Chart(ctx, { 
-                type: 'bar', 
-                data: { 
-                    labels, 
-                    datasets: [{ 
-                        label: 'Avg OEE Actual', 
-                        data: values, 
-                        backgroundColor: values.map(v => v >= 88 ? '#10b981' : '#ef4444'),
-                        borderRadius: 8
-                    }] 
-                }, 
-                options: { 
-                    responsive: true, 
-                    maintainAspectRatio: false,
-                    layout: { padding: { top: 30, bottom: 10, left: 10, right: 10 } },
-                    scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: 'OEE (%)' } } },
-                    plugins: { 
-                        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw.toFixed(1)}%` } },
-                        datalabels: {
-                            anchor: 'end',
-                            align: 'top',
-                            offset: 4,
-                            formatter: (value) => value.toFixed(1) + '%',
-                            font: { weight: 'bold', size: 10 },
-                            color: '#333'
-                        }
-                    } 
-                } 
-            }); 
+            let ctx = document.getElementById('chart-per-machine'); if(!ctx) return;
+            let stats = {}; records.forEach(r=>{ if(r.machine_name){ if(!stats[r.machine_name]) stats[r.machine_name]={t:0,c:0}; stats[r.machine_name].t+=r.oee_actual||0; stats[r.machine_name].c++; } });
+            let labels = Object.keys(stats), values = labels.map(l=>stats[l].t/stats[l].c);
+            if(chartInstances.perMachine) chartInstances.perMachine.destroy();
+            chartInstances.perMachine = new Chart(ctx, { type:'bar', data:{ labels, datasets:[{ label:'Avg OEE Actual', data:values, backgroundColor:values.map(v=>v>=88?'#10b981':'#ef4444'), borderRadius:8 }] }, options:{ responsive:true, maintainAspectRatio:false, layout:{ padding:{ top:45, bottom:20, right:15, left:15 } }, scales:{ y:{ beginAtZero:true, max:100, title:{display:true, text:'OEE (%)'} }, x:{ ticks:{ maxRotation:45, minRotation:45, font:{size:11} } } }, plugins:{ tooltip:{callbacks:{label:(ctx)=>`${ctx.raw.toFixed(1)}%`}}, datalabels:{ anchor:'end', align:'top', offset:8, formatter:(v)=>v.toFixed(1)+'%', font:{weight:'bold',size:10}, color:'#333', backgroundColor:'rgba(255,255,255,0.8)', padding:{left:4,right:4,top:2,bottom:2}, borderRadius:4 } } } });
         }
         
         function renderAPQChart(records) { 
-            let ctx = document.getElementById('chart-apq'); 
-            if(!ctx) return; 
-            let avgA = records.length ? records.reduce((s,r) => s + (r.availability_actual || 0), 0) / records.length : 0; 
-            let avgP = records.length ? records.reduce((s,r) => s + (r.performance || 0), 0) / records.length : 0; 
-            let avgQ = records.length ? records.reduce((s,r) => s + (r.quality || 0), 0) / records.length : 0; 
-            let avgA365 = records.length ? records.reduce((s,r) => s + (r.availability_365 || 0), 0) / records.length : 0; 
-            if(chartInstances.apq) chartInstances.apq.destroy(); 
-            chartInstances.apq = new Chart(ctx, { 
-                type: 'bar', 
-                data: { 
-                    labels: ['Availability Actual', 'Performance', 'Quality', 'Availability 365'], 
-                    datasets: [{ 
-                        label: 'Average %', 
-                        data: [avgA, avgP, avgQ, avgA365], 
-                        backgroundColor: ['#667eea', '#764ba2', '#f59e0b', '#10b981'],
-                        borderRadius: 8
-                    }] 
-                }, 
-                options: { 
-                    responsive: true, 
-                    maintainAspectRatio: false,
-                    layout: { padding: { top: 30, bottom: 10, left: 10, right: 10 } },
-                    scales: { y: { beginAtZero: true, max: 100, ticks: { callback: (v) => v + '%' }, title: { display: true, text: 'Persentase (%)' } } },
-                    plugins: { 
-                        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw.toFixed(1)}%` } },
-                        datalabels: {
-                            anchor: 'end',
-                            align: 'top',
-                            offset: 4,
-                            formatter: (value) => value.toFixed(1) + '%',
-                            font: { weight: 'bold', size: 11 },
-                            color: '#333'
-                        }
-                    } 
-                } 
-            }); 
+            let ctx = document.getElementById('chart-apq'); if(!ctx) return;
+            let avgA = records.length?records.reduce((s,r)=>s+(r.availability_actual||0),0)/records.length:0;
+            let avgP = records.length?records.reduce((s,r)=>s+(r.performance||0),0)/records.length:0;
+            let avgQ = records.length?records.reduce((s,r)=>s+(r.quality||0),0)/records.length:0;
+            let avgA365 = records.length?records.reduce((s,r)=>s+(r.availability_365||0),0)/records.length:0;
+            if(chartInstances.apq) chartInstances.apq.destroy();
+            chartInstances.apq = new Chart(ctx, { type:'bar', data:{ labels:['Availability','Performance','Quality','A365'], datasets:[{ label:'Average %', data:[avgA,avgP,avgQ,avgA365], backgroundColor:['#667eea','#764ba2','#f59e0b','#10b981'], borderRadius:8 }] }, options:{ responsive:true, maintainAspectRatio:false, layout:{ padding:{ top:45, bottom:20, left:10, right:10 } }, scales:{ y:{ beginAtZero:true, max:100, ticks:{callback:(v)=>v+'%'}, title:{display:true, text:'Persentase (%)'} } }, plugins:{ tooltip:{callbacks:{label:(ctx)=>`${ctx.raw.toFixed(1)}%`}}, datalabels:{ anchor:'end', align:'top', offset:8, formatter:(v)=>v.toFixed(1)+'%', font:{weight:'bold',size:11}, color:'#333', backgroundColor:'rgba(255,255,255,0.8)', padding:{left:4,right:4,top:2,bottom:2}, borderRadius:4 } } } });
         }
         
         function renderODTChart(records) { 
-            let ctx = document.getElementById('chart-odt'); 
-            if(!ctx) return; 
-            let odtMap = {}; 
-            records.forEach(r => { 
-                let odt = safeJSONParse(r.odt_data); 
-                odt.forEach(o => { 
-                    if(o.checked) { 
-                        let t = Math.min(o.actualTime || 0, o.standardTime || 0); 
-                        if(t > 0) odtMap[o.name] = (odtMap[o.name] || 0) + t; 
-                    } 
-                }); 
-            }); 
-            let sorted = Object.entries(odtMap).sort((a,b) => b[1] - a[1]).slice(0, 10); 
-            if(chartInstances.odt) chartInstances.odt.destroy(); 
-            if(sorted.length === 0) return;
-            chartInstances.odt = new Chart(ctx, { 
-                type: 'bar', 
-                data: { 
-                    labels: sorted.map(s => s[0]), 
-                    datasets: [{ label: 'Total Minutes', data: sorted.map(s => s[1]), backgroundColor: '#f59e0b', borderRadius: 8 }] 
-                }, 
-                options: { 
-                    indexAxis: 'y', 
-                    responsive: true, 
-                    maintainAspectRatio: false,
-                    layout: { padding: { left: 20, right: 60, top: 10, bottom: 10 } },
-                    scales: { x: { title: { display: true, text: 'Menit' } } },
-                    plugins: { 
-                        tooltip: { callbacks: { label: (ctx) => `${ctx.raw.toFixed(1)} menit` } },
-                        datalabels: {
-                            anchor: 'end',
-                            align: 'right',
-                            offset: 4,
-                            formatter: (value) => value.toFixed(0),
-                            font: { weight: 'bold', size: 10 },
-                            color: '#333'
-                        }
-                    } 
-                } 
-            }); 
+            let ctx = document.getElementById('chart-odt'); if(!ctx) return;
+            let odtMap = {};
+            records.forEach(r=>{ let odt=safeJSONParse(r.odt_data); odt.forEach(o=>{ if(o.checked){ let t=Math.min(o.actualTime||0,o.standardTime||0); if(t>0) odtMap[o.name]=(odtMap[o.name]||0)+t; } }); });
+            let sorted = Object.entries(odtMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
+            if(chartInstances.odt) chartInstances.odt.destroy();
+            if(sorted.length===0) return;
+            chartInstances.odt = new Chart(ctx, { type:'bar', data:{ labels:sorted.map(s=>s[0]), datasets:[{ label:'Menit', data:sorted.map(s=>s[1]), backgroundColor:'#f59e0b', borderRadius:8 }] }, options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, layout:{ padding:{ left:30, right:80, top:15, bottom:15 } }, scales:{ x:{ title:{display:true, text:'Menit'} } }, plugins:{ tooltip:{callbacks:{label:(ctx)=>`${ctx.raw.toFixed(1)} menit`}}, datalabels:{ anchor:'end', align:'right', offset:10, formatter:(v)=>v.toFixed(0), font:{weight:'bold',size:10}, color:'#333', backgroundColor:'rgba(255,255,255,0.8)', padding:{left:4,right:4,top:2,bottom:2}, borderRadius:4 } } } });
         }
         
-        function renderCharts() { 
-            let rec = getFilteredRecords(); 
-            renderDailyChart(rec); 
-            renderTrendChart(); 
-            renderPerMachineChart(rec); 
-            renderAPQChart(rec); 
-            renderODTChart(rec); 
-        }
+        function renderCharts() { let rec = getFilteredRecords(); renderDailyChart(rec); renderTrendChart(); renderPerMachineChart(rec); renderAPQChart(rec); renderODTChart(rec); }
         
-        function updateFilter(k, v) { 
-            filters[k] = v; 
-            clickedRecordFilter = null; 
-            renderApp(); 
-        }
+        function updateFilter(k,v) { filters[k]=v; renderApp(); }
+        function navigateTo(p) { currentPage=p; if(p!=='management') isManagementUnlocked=false; editMode=false; editingRecordId=null; renderApp(); }
         
-        function navigateTo(p) { 
-            currentPage = p; 
-            if(p !== 'management') isManagementUnlocked = false; 
-            editMode = false; 
-            editingRecordId = null; 
-            renderApp(); 
-        }
+        function renderManagementLogin() { return `<div class="container-main"><div class="card" style="max-width:500px;margin:60px auto;text-align:center"><div style="font-size:48px">🔒</div><h3>Management Access</h3><input type="password" id="mgmt-password" class="input-field my-3"><button class="btn btn-primary w-full" onclick="unlockManagement()">Unlock</button></div></div>`; }
+        function unlockManagement() { if(document.getElementById('mgmt-password').value===MANAGEMENT_PASSWORD) { isManagementUnlocked=true; renderApp(); showToast('Management unlocked','success'); } else showToast('Wrong password','error'); }
         
-        function renderManagementLogin() { 
-            return `<div class="container-main"><div class="card" style="max-width:500px;margin:60px auto;text-align:center"><div style="font-size:48px">🔒</div><h3 style="font-size:24px;font-weight:700">Management Access</h3><p style="color:var(--text-secondary);margin:12px 0">Enter password to access machine management</p><input type="password" id="mgmt-password" class="input-field" style="margin-bottom:16px"><button class="btn btn-primary" style="width:100%" onclick="unlockManagement()">🔓 Unlock</button></div></div>`; 
-        }
+        function renderManagementPage() { return `<div class="container-main"><div class="card"><div class="card-header">⚙️ Machine Management <button class="btn btn-primary" onclick="openAddMachineModal()">➕ Add</button></div><div class="table-wrapper">\n<table><thead> <tr><th>Machine</th><th>Area</th><th>Target/min</th><th>PIC</th><th>Actions</th></tr> </thead><tbody>${allMachines.map(m=>`<tr><td><strong>${m.machine_name}</strong></td><td>${m.area}</td><td>${m.target_per_minute||0}</td><td>${m.pic||'-'}</td><td><button class="btn btn-secondary" onclick="editMachine('${m.id}')">Edit</button> <button class="btn btn-danger" onclick="confirmDeleteMachine('${m.id}')">Delete</button></td></tr>`).join('')||'<tr><td colspan="5">No machines</td></tr>'}</tbody></table></div></div><div class="card"><div class="card-header">📝 Edit OEE Data</div><div class="filter-section"><input type="date" id="search-date" class="input-field"><select id="search-shift" class="input-field"><option value="all">All Shift</option>${Object.keys(SHIFTS).map(s=>`<option>${s}</option>`)}</select><select id="search-machine" class="input-field"><option value="all">All Machine</option>${[...new Set(allOEERecords.map(r=>r.machine_name))].map(m=>`<option>${m}</option>`)}</select><button class="btn btn-primary" onclick="searchEditRecords()">Search</button></div><div id="edit-records-list" class="table-wrapper mt-4"></div></div></div>`; }
         
-        function unlockManagement() { 
-            let pwd = document.getElementById('mgmt-password'); 
-            if(pwd && pwd.value === MANAGEMENT_PASSWORD) { 
-                isManagementUnlocked = true; 
-                renderApp(); 
-                showToast('Management unlocked', 'success'); 
-            } else { 
-                showToast('Incorrect password', 'error'); 
-            } 
-        }
+        async function searchEditRecords() { let date=document.getElementById('search-date')?.value, shift=document.getElementById('search-shift')?.value, machine=document.getElementById('search-machine')?.value; let list=allOEERecords.filter(r=>(!date||r.date===date)&&(shift==='all'||r.shift===shift)&&(machine==='all'||r.machine_name===machine)); document.getElementById('edit-records-list').innerHTML=`<table><thead><tr><th>Date</th><th>Shift</th><th>Machine</th><th>PIC</th><th>OEE</th><th>Action</th></tr></thead><tbody>${list.map(r=>`<tr><td>${r.date}</td><td>${r.shift}</td><td>${r.machine_name}</td><td>${r.pic}</td><td>${(r.oee_actual||0).toFixed(1)}%</td><td><button class="btn btn-secondary" onclick="loadOEERecordForEdit('${r.id}')">Edit</button></td></tr>`).join('')||'<tr><td colspan="6">No data</td></tr>'}</tbody></table>`; }
         
-        function renderManagementPage() { 
-            let uniqueMachines = [...new Set(allOEERecords.map(r => r.machine_name).filter(Boolean))];
-            return `<div class="container-main">
-                <div class="card">
-                    <div class="card-header">⚙️ Machine Management <button class="btn btn-primary" onclick="openAddMachineModal()">➕ Add Machine</button></div>
-                    <div class="table-wrapper">
-                         <table>
-                            <thead> <tr><th>Machine Name</th><th>Area</th><th>Target/Min</th><th>PIC</th><th>Actions</th></tr> </thead>
-                            <tbody>${allMachines.map(m => `
-                                <tr>
-                                    <td><strong>${m.machine_name}</strong></td>
-                                    <td><span class="badge">${m.area}</span></td>
-                                    <td>${m.target_per_minute || 0}/min</td>
-                                    <td>${m.pic || '-'}</td>
-                                    <td><button class="btn btn-secondary" style="padding:6px 12px;margin-right:8px" onclick="editMachine('${m.id}')">Edit</button><button class="btn btn-danger" style="padding:6px 12px" onclick="confirmDeleteMachine('${m.id}','${m.machine_name}')">Delete</button></td>
-                                </tr>
-                            `).join('') || '<tr><td colspan="5" style="text-align:center">No machines configured</td></tr>'}</tbody>
-                        </table>
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="card-header">📝 Edit OEE Data</div>
-                    <div class="filter-section">
-                        <div><label class="label">Tanggal</label><input type="date" id="search-date" class="input-field"></div>
-                        <div><label class="label">Shift</label><select id="search-shift" class="input-field"><option value="all">All Shifts</option>${Object.keys(SHIFTS).map(s => `<option>${s}</option>`).join('')}</select></div>
-                        <div><label class="label">Machine</label><select id="search-machine" class="input-field"><option value="all">All Machines</option>${uniqueMachines.map(m => `<option>${m}</option>`).join('')}</select></div>
-                        <div style="display:flex;gap:8px;align-items:flex-end"><button class="btn btn-primary" onclick="searchEditRecords()">🔍 Search</button><button class="btn btn-secondary" onclick="resetSearch()">Reset</button></div>
-                    </div>
-                    <div id="edit-records-list" class="table-wrapper"></div>
-                </div>
-            </div>`; 
-        }
+        async function loadOEERecordForEdit(id){ let rec=allOEERecords.find(r=>r.id===id); if(!rec) return; editMode=true; editingRecordId=id; currentPage='input'; renderApp(); setTimeout(async()=>{ document.getElementById('input-date').value=rec.date; document.getElementById('input-shift').value=rec.shift; document.getElementById('input-machine').value=rec.machine_id; await loadMachineData(); document.getElementById('input-pic').value=rec.pic||''; document.getElementById('input-product').value=rec.product_code||''; document.getElementById('input-batch').value=rec.batch_number||''; document.getElementById('input-output').value=rec.actual_output||0; document.getElementById('input-reject').value=rec.reject||0; updateCalculations(); },300);}
         
-        async function searchEditRecords() { 
-            let date = document.getElementById('search-date')?.value; 
-            let shift = document.getElementById('search-shift')?.value; 
-            let machine = document.getElementById('search-machine')?.value; 
-            let list = allOEERecords.filter(r => (!date || r.date === date) && (shift === 'all' || r.shift === shift) && (machine === 'all' || r.machine_name === machine)); 
-            let container = document.getElementById('edit-records-list');
-            if(container) {
-                container.innerHTML = `<table><thead><tr><th>Date</th><th>Shift</th><th>Machine</th><th>PIC</th><th>Batch</th><th>Output</th><th>OEE</th><th>Action</th></tr></thead><tbody>${list.map(r => `
-                    <tr>
-                        <td>${r.date}</td><td>${r.shift}</td><td>${r.machine_name}</td><td>${r.pic}</td><td>${r.batch_number || '-'}</td><td>${r.actual_output}</td>
-                        <td class="${(r.oee_actual || 0) >= 88 ? 'status-good' : 'status-bad'}">${(r.oee_actual || 0).toFixed(1)}%</td>
-                        <td><button class="btn btn-secondary" style="padding:4px 8px" onclick="loadOEERecordForEdit('${r.id}')">✏️ Edit</button></td>
-                    </tr>
-                `).join('') || '<tr><td colspan="8" style="text-align:center">Tidak ada data</td></tr>'}</tbody></table>`;
-            }
-        }
+        async function saveOEEData(isUpdate=false){ let date=document.getElementById('input-date')?.value, shift=document.getElementById('input-shift')?.value, machineId=document.getElementById('input-machine')?.value, pic=document.getElementById('input-pic')?.value.toUpperCase()||'', product=document.getElementById('input-product')?.value.toUpperCase()||'', batch=document.getElementById('input-batch')?.value.toUpperCase()||'', output=parseFloat(document.getElementById('input-output')?.value)||0, reject=parseFloat(document.getElementById('input-reject')?.value)||0, notes=document.getElementById('input-notes')?.value||''; if(!date||!shift||!machineId||!pic||!product||!batch){ showToast('Isi semua field wajib','error'); return; } let odtData=[], lsmData=[], lsnmData=[], msData=[], msCount=0; if(currentMachineDetails?.odt) currentMachineDetails.odt.forEach(o=>{ let cb=document.getElementById(`odt-check-${o.id}`); let inp=document.getElementById(`odt-time-${o.id}`); odtData.push({ name:o.odt_name, standardTime:o.standard_time, actualTime:inp?.value||0, checked:cb?.checked||false }); }); if(currentMachineDetails?.lineStopMesin) currentMachineDetails.lineStopMesin.forEach(ls=>{ let cb=document.getElementById(`lsm-check-${ls.id}`); if(cb?.checked){ let dur=parseFloat(document.getElementById(`lsm-duration-${ls.id}`)?.value)||0; lsmData.push({ item:ls.item_name, duration:dur }); } }); if(currentMachineDetails?.lineStopNonMesin) currentMachineDetails.lineStopNonMesin.forEach(ls=>{ let cb=document.getElementById(`lsnm-check-${ls.id}`); if(cb?.checked){ let dur=parseFloat(document.getElementById(`lsnm-duration-${ls.id}`)?.value)||0; lsnmData.push({ item:ls.item_name, duration:dur }); } }); if(currentMachineDetails?.minorStop) currentMachineDetails.minorStop.forEach(ms=>{ let cb=document.getElementById(`ms-check-${ms.id}`); if(cb?.checked){ let freq=parseFloat(document.getElementById(`ms-frequency-${ms.id}`)?.value)||0; if(freq){ msData.push({ item:ms.item_name, frequency:freq }); msCount+=freq; } } }); let shiftMin=SHIFTS[shift]?.minutes||0, target=currentMachineData?.target_per_minute||0; let totalODT=odtData.filter(o=>o.checked).reduce((s,o)=>s+Math.min(o.actualTime||0,o.standardTime),0); let totalLSM=lsmData.reduce((s,l)=>s+(l.duration||0),0); let totalLSNM=lsnmData.reduce((s,l)=>s+(l.duration||0),0); let availTime=shiftMin-totalODT-totalLSM-totalLSNM; if(availTime<0){ showToast('Durasi melebihi jam kerja','error'); return; } let performance=target>0?((output)/(availTime*target))*100:100; let quality=output>0?((output-reject)/output)*100:100; let availActual=availTime>0?((availTime)/(shiftMin-totalODT))*100:0; let oeeActual=(availActual*performance*quality)/10000; let record={ date, shift, shift_minutes:shiftMin, machine_name:currentMachineData.machine_name, machine_id:machineId, pic, product_code:product, batch_number:batch, odt_data:odtData, line_stop_mesin_data:lsmData, line_stop_non_mesin_data:lsnmData, minor_stop_data:msData, minor_stop_count:msCount, actual_output:output, reject, notes, availability_actual:availActual, availability_365:((availTime)/shiftMin)*100, performance, quality, oee_actual:oeeActual, oee_365:((availTime)/shiftMin)*performance*quality/10000 }; showLoading('Menyimpan...'); try{ if(editMode && editingRecordId){ await updateOEERecord(editingRecordId,record); let idx=allOEERecords.findIndex(r=>r.id===editingRecordId); if(idx!==-1) allOEERecords[idx]={...allOEERecords[idx],...record}; showToast('Data diupdate','success'); editMode=false; editingRecordId=null; } else { let saved=await saveOEERecord(record); allOEERecords.unshift(saved); showToast('Data tersimpan','success'); } resetInputForm(); renderApp(); }catch(e){ showToast('Gagal menyimpan','error'); }finally{ hideLoading(); } }
         
-        function resetSearch() { 
-            let dateInp = document.getElementById('search-date');
-            let shiftSel = document.getElementById('search-shift');
-            let machineSel = document.getElementById('search-machine');
-            if(dateInp) dateInp.value = '';
-            if(shiftSel) shiftSel.value = 'all';
-            if(machineSel) machineSel.value = 'all';
-            searchEditRecords(); 
-        }
+        function resetInputForm(){ let fields=['input-date','input-shift','input-machine','input-pic','input-product','input-batch','input-output','input-reject','input-notes']; fields.forEach(id=>{ let el=document.getElementById(id); if(el) el.value=id==='input-date'?new Date().toISOString().split('T')[0]:id==='input-reject'?'0':''; }); let sections=['odt-section','line-stop-mesin-section','line-stop-non-mesin-section','minor-stop-section','calculated-results']; sections.forEach(id=>{ let el=document.getElementById(id); if(el) el.style.display='none'; }); editMode=false; editingRecordId=null; currentMachineData=null; currentMachineDetails=null; showToast('Form reset','success'); }
         
-        async function loadOEERecordForEdit(id) { 
-            let rec = allOEERecords.find(r => r.id === id); 
-            if(!rec) return; 
-            editMode = true; 
-            editingRecordId = id; 
-            currentPage = 'input'; 
-            renderApp(); 
-            setTimeout(async() => { 
-                let dateInp = document.getElementById('input-date');
-                let shiftSel = document.getElementById('input-shift');
-                let machineSel = document.getElementById('input-machine');
-                if(dateInp) dateInp.value = rec.date;
-                if(shiftSel) shiftSel.value = rec.shift;
-                if(machineSel) machineSel.value = rec.machine_id;
-                await loadMachineData();
-                let picInp = document.getElementById('input-pic');
-                let productInp = document.getElementById('input-product');
-                let batchInp = document.getElementById('input-batch');
-                let outputInp = document.getElementById('input-output');
-                let rejectInp = document.getElementById('input-reject');
-                if(picInp) picInp.value = rec.pic || '';
-                if(productInp) productInp.value = rec.product_code || '';
-                if(batchInp) batchInp.value = rec.batch_number || '';
-                if(outputInp) outputInp.value = rec.actual_output || 0;
-                if(rejectInp) rejectInp.value = rec.reject || 0;
-                let odt = safeJSONParse(rec.odt_data);
-                if(currentMachineDetails?.odt) {
-                    currentMachineDetails.odt.forEach(o => { 
-                        let saved = odt.find(d => d.name === o.odt_name); 
-                        if(saved?.checked) { 
-                            let cb = document.getElementById(`odt-check-${o.id}`); 
-                            if(cb) { 
-                                cb.checked = true; 
-                                let inp = document.getElementById(`odt-time-${o.id}`); 
-                                if(inp) { 
-                                    inp.disabled = false; 
-                                    inp.value = saved.actualTime; 
-                                } 
-                                toggleODT(o.id); 
-                            } 
-                        } 
-                    });
-                }
-                updateCalculations();
-            }, 300);
-        }
+        async function loadMachineData(){ let mid=document.getElementById('input-machine')?.value; if(!mid){ document.getElementById('odt-section').style.display='none'; document.getElementById('line-stop-mesin-section').style.display='none'; document.getElementById('line-stop-non-mesin-section').style.display='none'; document.getElementById('minor-stop-section').style.display='none'; return; } currentMachineData=allMachines.find(m=>m.id===mid); currentMachineDetails=await loadMachineDetails(mid); let odtDiv=document.getElementById('odt-section'), lsmDiv=document.getElementById('line-stop-mesin-section'), lsnmDiv=document.getElementById('line-stop-non-mesin-section'), msDiv=document.getElementById('minor-stop-section'); if(odtDiv && currentMachineDetails.odt.length){ odtDiv.style.display='block'; document.getElementById('odt-list').innerHTML=currentMachineDetails.odt.map(o=>`<div class="checkbox-item"><input type="checkbox" id="odt-check-${o.id}" onchange="toggleODT('${o.id}')"><label><strong>${o.odt_name}</strong> (Std:${o.standard_time}min)</label><input type="number" id="odt-time-${o.id}" placeholder="Actual" class="input-field" style="width:100px" disabled oninput="updateCalculations()"></div>`).join(''); } if(lsmDiv && currentMachineDetails.lineStopMesin.length){ lsmDiv.style.display='block'; document.getElementById('line-stop-mesin-list').innerHTML=currentMachineDetails.lineStopMesin.map(ls=>`<div class="checkbox-item"><input type="checkbox" id="lsm-check-${ls.id}" onchange="toggleLineStopMesin('${ls.id}')"><label>${ls.item_name}</label><div id="lsm-details-${ls.id}" style="display:none"><input type="number" id="lsm-duration-${ls.id}" placeholder="Durasi" class="input-field" oninput="updateCalculations()"></div></div>`).join(''); } if(lsnmDiv && currentMachineDetails.lineStopNonMesin.length){ lsnmDiv.style.display='block'; document.getElementById('line-stop-non-mesin-list').innerHTML=currentMachineDetails.lineStopNonMesin.map(ls=>`<div class="checkbox-item"><input type="checkbox" id="lsnm-check-${ls.id}" onchange="toggleLineStopNonMesin('${ls.id}')"><label>${ls.item_name}</label><div id="lsnm-details-${ls.id}" style="display:none"><input type="number" id="lsnm-duration-${ls.id}" placeholder="Durasi" class="input-field" oninput="updateCalculations()"></div></div>`).join(''); } if(msDiv && currentMachineDetails.minorStop.length){ msDiv.style.display='block'; document.getElementById('minor-stop-list').innerHTML=currentMachineDetails.minorStop.map(ms=>`<div class="checkbox-item"><input type="checkbox" id="ms-check-${ms.id}" onchange="toggleMinorStop('${ms.id}')"><label>${ms.item_name}</label><div id="ms-details-${ms.id}" style="display:none"><input type="number" id="ms-frequency-${ms.id}" placeholder="Frekuensi" class="input-field" oninput="updateCalculations()"></div></div>`).join(''); } updateCalculations(); }
         
-        async function saveOEEData(isUpdate = false) { 
-            let date = document.getElementById('input-date')?.value;
-            let shift = document.getElementById('input-shift')?.value;
-            let machineId = document.getElementById('input-machine')?.value;
-            let pic = document.getElementById('input-pic')?.value.toUpperCase() || '';
-            let product = document.getElementById('input-product')?.value.toUpperCase() || '';
-            let batch = document.getElementById('input-batch')?.value.toUpperCase() || '';
-            let output = parseFloat(document.getElementById('input-output')?.value) || 0;
-            let reject = parseFloat(document.getElementById('input-reject')?.value) || 0;
-            let notes = document.getElementById('input-notes')?.value || '';
-            
-            if(!date || !shift || !machineId || !pic || !product || !batch) { 
-                showToast('Isi semua field wajib (Tanggal, Shift, Machine, PIC, Product, Batch)', 'error'); 
-                return; 
-            }
-            
-            let odtData = [], lsmData = [], lsnmData = [], msData = [], msCount = 0;
-            
-            if(currentMachineDetails?.odt) {
-                currentMachineDetails.odt.forEach(o => { 
-                    let cb = document.getElementById(`odt-check-${o.id}`); 
-                    let inp = document.getElementById(`odt-time-${o.id}`); 
-                    odtData.push({ name: o.odt_name, standardTime: o.standard_time, actualTime: inp?.value || 0, checked: cb?.checked || false }); 
-                });
-            }
-            if(currentMachineDetails?.lineStopMesin) {
-                currentMachineDetails.lineStopMesin.forEach(ls => { 
-                    let cb = document.getElementById(`lsm-check-${ls.id}`); 
-                    if(cb?.checked) { 
-                        let dur = parseFloat(document.getElementById(`lsm-duration-${ls.id}`)?.value) || 0; 
-                        lsmData.push({ item: ls.item_name, duration: dur, action: document.getElementById(`lsm-action-${ls.id}`)?.value || '' }); 
-                    } 
-                });
-            }
-            if(currentMachineDetails?.lineStopNonMesin) {
-                currentMachineDetails.lineStopNonMesin.forEach(ls => { 
-                    let cb = document.getElementById(`lsnm-check-${ls.id}`); 
-                    if(cb?.checked) { 
-                        let dur = parseFloat(document.getElementById(`lsnm-duration-${ls.id}`)?.value) || 0; 
-                        lsnmData.push({ item: ls.item_name, duration: dur, action: document.getElementById(`lsnm-action-${ls.id}`)?.value || '' }); 
-                    } 
-                });
-            }
-            if(currentMachineDetails?.minorStop) {
-                currentMachineDetails.minorStop.forEach(ms => { 
-                    let cb = document.getElementById(`ms-check-${ms.id}`); 
-                    if(cb?.checked) { 
-                        let freq = parseFloat(document.getElementById(`ms-frequency-${ms.id}`)?.value) || 0; 
-                        if(freq) { 
-                            msData.push({ item: ms.item_name, frequency: freq }); 
-                            msCount += freq; 
-                        } 
-                    } 
-                });
-            }
-            
-            let shiftMin = SHIFTS[shift]?.minutes || 0;
-            let target = currentMachineData?.target_per_minute || 0;
-            let totalODT = odtData.filter(o => o.checked).reduce((s,o) => s + Math.min(o.actualTime || 0, o.standardTime), 0);
-            let totalLSM = lsmData.reduce((s,l) => s + (l.duration || 0), 0);
-            let totalLSNM = lsnmData.reduce((s,l) => s + (l.duration || 0), 0);
-            let availTime = shiftMin - totalODT - totalLSM - totalLSNM;
-            
-            if(availTime < 0) { 
-                showToast('Total durasi kegiatan melebihi jam kerja, cek kembali data availability anda.', 'error'); 
-                return; 
-            }
-            
-            let performance = target > 0 ? ((output) / (availTime * target)) * 100 : 100;
-            let quality = output > 0 ? ((output - reject) / output) * 100 : 100;
-            let availActual = availTime > 0 ? ((availTime) / (shiftMin - totalODT)) * 100 : 0;
-            let oeeActual = (availActual * performance * quality) / 10000;
-            
-            let record = { 
-                date, shift, shift_minutes: shiftMin, machine_name: currentMachineData.machine_name, machine_id: machineId, pic, product_code: product, batch_number: batch,
-                odt_data: odtData, line_stop_mesin_data: lsmData, line_stop_non_mesin_data: lsnmData, minor_stop_data: msData, minor_stop_count: msCount,
-                actual_output: output, reject, notes,
-                availability_actual: availActual, availability_365: ((availTime) / shiftMin) * 100, performance, quality, oee_actual: oeeActual, oee_365: ((availTime) / shiftMin) * performance * quality / 10000
-            };
-            
-            showLoading('Menyimpan...');
-            try { 
-                if(editMode && editingRecordId) { 
-                    await updateOEERecord(editingRecordId, record); 
-                    let idx = allOEERecords.findIndex(r => r.id === editingRecordId); 
-                    if(idx !== -1) allOEERecords[idx] = { ...allOEERecords[idx], ...record }; 
-                    showToast('Data berhasil diupdate', 'success'); 
-                    editMode = false; 
-                    editingRecordId = null; 
-                } else { 
-                    let saved = await saveOEERecord(record); 
-                    allOEERecords.unshift(saved); 
-                    showToast('Data berhasil disimpan', 'success'); 
-                } 
-                resetInputForm(); 
-                renderApp(); 
-            } catch(e) { 
-                showToast('Gagal menyimpan: ' + e.message, 'error'); 
-            } finally { 
-                hideLoading(); 
-            } 
-        }
+        function toggleODT(id){ let cb=document.getElementById(`odt-check-${id}`), inp=document.getElementById(`odt-time-${id}`); if(inp) inp.disabled=!cb.checked; updateCalculations(); }
+        function toggleLineStopMesin(id){ let d=document.getElementById(`lsm-details-${id}`); if(d) d.style.display=document.getElementById(`lsm-check-${id}`).checked?'block':'none'; updateCalculations(); }
+        function toggleLineStopNonMesin(id){ let d=document.getElementById(`lsnm-details-${id}`); if(d) d.style.display=document.getElementById(`lsnm-check-${id}`).checked?'block':'none'; updateCalculations(); }
+        function toggleMinorStop(id){ let d=document.getElementById(`ms-details-${id}`); if(d) d.style.display=document.getElementById(`ms-check-${id}`).checked?'block':'none'; }
         
-        function resetInputForm() { 
-            let dateInp = document.getElementById('input-date');
-            let shiftSel = document.getElementById('input-shift');
-            let machineSel = document.getElementById('input-machine');
-            let picInp = document.getElementById('input-pic');
-            let productInp = document.getElementById('input-product');
-            let batchInp = document.getElementById('input-batch');
-            let outputInp = document.getElementById('input-output');
-            let rejectInp = document.getElementById('input-reject');
-            let notesInp = document.getElementById('input-notes');
-            
-            if(dateInp) dateInp.value = new Date().toISOString().split('T')[0];
-            if(shiftSel) shiftSel.value = '';
-            if(machineSel) machineSel.value = '';
-            if(picInp) picInp.value = '';
-            if(productInp) productInp.value = '';
-            if(batchInp) batchInp.value = '';
-            if(outputInp) outputInp.value = '';
-            if(rejectInp) rejectInp.value = '0';
-            if(notesInp) notesInp.value = '';
-            
-            let odtDiv = document.getElementById('odt-section');
-            let lsmDiv = document.getElementById('line-stop-mesin-section');
-            let lsnmDiv = document.getElementById('line-stop-non-mesin-section');
-            let msDiv = document.getElementById('minor-stop-section');
-            let resultsDiv = document.getElementById('calculated-results');
-            
-            if(odtDiv) odtDiv.style.display = 'none';
-            if(lsmDiv) lsmDiv.style.display = 'none';
-            if(lsnmDiv) lsnmDiv.style.display = 'none';
-            if(msDiv) msDiv.style.display = 'none';
-            if(resultsDiv) resultsDiv.style.display = 'none';
-            
-            editMode = false;
-            editingRecordId = null;
-            currentMachineData = null;
-            currentMachineDetails = null;
-            showToast('Form direset', 'success');
-        }
+        function updateCalculations(){ let shift=document.getElementById('input-shift')?.value; if(!currentMachineData||!shift) return; let odtTotal=0; if(currentMachineDetails?.odt) currentMachineDetails.odt.forEach(o=>{ let cb=document.getElementById(`odt-check-${o.id}`); if(cb?.checked){ let val=parseFloat(document.getElementById(`odt-time-${o.id}`)?.value)||0; odtTotal+=Math.min(val,o.standard_time); } }); let lsmTotal=0; if(currentMachineDetails?.lineStopMesin) currentMachineDetails.lineStopMesin.forEach(ls=>{ let cb=document.getElementById(`lsm-check-${ls.id}`); if(cb?.checked) lsmTotal+=parseFloat(document.getElementById(`lsm-duration-${ls.id}`)?.value)||0; }); let lsnmTotal=0; if(currentMachineDetails?.lineStopNonMesin) currentMachineDetails.lineStopNonMesin.forEach(ls=>{ let cb=document.getElementById(`lsnm-check-${ls.id}`); if(cb?.checked) lsnmTotal+=parseFloat(document.getElementById(`lsnm-duration-${ls.id}`)?.value)||0; }); let shiftMin=SHIFTS[shift]?.minutes||0, availTime=shiftMin-odtTotal-lsmTotal-lsnmTotal, target=currentMachineData.target_per_minute||0, output=parseFloat(document.getElementById('input-output')?.value)||0, reject=parseFloat(document.getElementById('input-reject')?.value)||0; let performance=target>0?((output)/(availTime*target))*100:100, quality=output>0?((output-reject)/output)*100:100, availActual=availTime>0?((availTime)/(shiftMin-odtTotal))*100:0, oeeActual=(availActual*performance*quality)/10000; let els={a:'calc-a-actual',p:'calc-p',q:'calc-q',o:'calc-oee-actual'}; Object.keys(els).forEach(k=>{ let el=document.getElementById(els[k]); if(el) el.innerHTML=eval(k==='a'?availActual:k==='p'?performance:k==='q'?quality:oeeActual).toFixed(1)+'%'; }); let resDiv=document.getElementById('calculated-results'); if(resDiv) resDiv.style.display='block'; }
         
-        async function loadMachineData() { 
-            let mid = document.getElementById('input-machine')?.value; 
-            if(!mid) { 
-                let odtDiv = document.getElementById('odt-section');
-                let lsmDiv = document.getElementById('line-stop-mesin-section');
-                let lsnmDiv = document.getElementById('line-stop-non-mesin-section');
-                let msDiv = document.getElementById('minor-stop-section');
-                if(odtDiv) odtDiv.style.display = 'none';
-                if(lsmDiv) lsmDiv.style.display = 'none';
-                if(lsnmDiv) lsnmDiv.style.display = 'none';
-                if(msDiv) msDiv.style.display = 'none';
-                return; 
-            } 
-            currentMachineData = allMachines.find(m => m.id === mid); 
-            currentMachineDetails = await loadMachineDetails(mid); 
-            
-            let odtDiv = document.getElementById('odt-section');
-            let lsmDiv = document.getElementById('line-stop-mesin-section');
-            let lsnmDiv = document.getElementById('line-stop-non-mesin-section');
-            let msDiv = document.getElementById('minor-stop-section');
-            let odtList = document.getElementById('odt-list');
-            let lsmList = document.getElementById('line-stop-mesin-list');
-            let lsnmList = document.getElementById('line-stop-non-mesin-list');
-            let msList = document.getElementById('minor-stop-list');
-            
-            if(odtDiv && odtList && currentMachineDetails.odt.length) {
-                odtDiv.style.display = 'block';
-                odtList.innerHTML = currentMachineDetails.odt.map(o => `
-                    <div class="checkbox-item">
-                        <input type="checkbox" id="odt-check-${o.id}" onchange="toggleODT('${o.id}')">
-                        <label style="flex:1"><strong>${o.odt_name}</strong> <span style="color:var(--text-secondary)">(Standard: ${o.standard_time} min)</span></label>
-                        <input type="number" id="odt-time-${o.id}" placeholder="Actual time" class="input-field" style="width:120px" disabled oninput="updateCalculations()">
-                    </div>
-                `).join('');
-            } else if(odtDiv) odtDiv.style.display = 'none';
-            
-            if(lsmDiv && lsmList && currentMachineDetails.lineStopMesin.length) {
-                lsmDiv.style.display = 'block';
-                lsmList.innerHTML = currentMachineDetails.lineStopMesin.map(ls => `
-                    <div class="checkbox-item">
-                        <input type="checkbox" id="lsm-check-${ls.id}" onchange="toggleLineStopMesin('${ls.id}')">
-                        <label style="flex:1"><strong>${ls.item_name}</strong></label>
-                        <div id="lsm-details-${ls.id}" style="display:none; width:100%">
-                            <input type="number" id="lsm-duration-${ls.id}" placeholder="Duration (min)" class="input-field" oninput="updateCalculations()">
-                            <input type="text" id="lsm-action-${ls.id}" placeholder="Action" class="input-field" style="margin-top:8px">
-                        </div>
-                    </div>
-                `).join('');
-            } else if(lsmDiv) lsmDiv.style.display = 'none';
-            
-            if(lsnmDiv && lsnmList && currentMachineDetails.lineStopNonMesin.length) {
-                lsnmDiv.style.display = 'block';
-                lsnmList.innerHTML = currentMachineDetails.lineStopNonMesin.map(ls => `
-                    <div class="checkbox-item">
-                        <input type="checkbox" id="lsnm-check-${ls.id}" onchange="toggleLineStopNonMesin('${ls.id}')">
-                        <label style="flex:1"><strong>${ls.item_name}</strong></label>
-                        <div id="lsnm-details-${ls.id}" style="display:none; width:100%">
-                            <input type="number" id="lsnm-duration-${ls.id}" placeholder="Duration (min)" class="input-field" oninput="updateCalculations()">
-                            <input type="text" id="lsnm-action-${ls.id}" placeholder="Action" class="input-field" style="margin-top:8px">
-                        </div>
-                    </div>
-                `).join('');
-            } else if(lsnmDiv) lsnmDiv.style.display = 'none';
-            
-            if(msDiv && msList && currentMachineDetails.minorStop.length) {
-                msDiv.style.display = 'block';
-                msList.innerHTML = currentMachineDetails.minorStop.map(ms => `
-                    <div class="checkbox-item">
-                        <input type="checkbox" id="ms-check-${ms.id}" onchange="toggleMinorStop('${ms.id}')">
-                        <label style="flex:1"><strong>${ms.item_name}</strong></label>
-                        <div id="ms-details-${ms.id}" style="display:none; width:100%">
-                            <input type="number" id="ms-frequency-${ms.id}" placeholder="Frequency (kali)" class="input-field" oninput="updateCalculations()">
-                        </div>
-                    </div>
-                `).join('');
-            } else if(msDiv) msDiv.style.display = 'none';
-            
-            updateCalculations();
-        }
+        function renderInputPage(){ let editBanner=editMode?`<div style="background:rgba(245,158,11,0.1);padding:12px;border-radius:8px;margin-bottom:16px;display:flex;justify-content:space-between"><span class="edit-mode-badge">✏️ EDIT MODE</span><button class="btn btn-secondary" onclick="cancelEdit()">Batal</button></div>`:''; return `<div class="container-main"><div class="card">${editBanner}<div class="card-header">✏️ Input OEE</div><div class="filter-section"><div><label>Tanggal</label><input type="date" id="input-date" class="input-field" value="${new Date().toISOString().split('T')[0]}"></div><div><label>Shift</label><select id="input-shift" class="input-field" onchange="updateCalculations()"><option value="">Pilih</option>${Object.keys(SHIFTS).map(s=>`<option>${s}</option>`).join('')}</select></div><div><label>Machine</label><select id="input-machine" class="input-field" onchange="loadMachineData()"><option value="">Pilih</option>${allMachines.map(m=>`<option value="${m.id}">${m.machine_name}</option>`).join('')}</select></div><div><label>PIC</label><input id="input-pic" class="input-field" style="text-transform:uppercase"></div><div><label>Product</label><input id="input-product" class="input-field" style="text-transform:uppercase"></div><div><label>Batch</label><input id="input-batch" class="input-field" style="text-transform:uppercase"></div></div><div id="odt-section" style="display:none"><h4 class="font-bold mt-4 mb-2">⏱️ ODT</h4><div id="odt-list"></div></div><div id="line-stop-mesin-section" style="display:none"><h4 class="font-bold mt-4 mb-2">🔧 Line Stop Mesin</h4><div id="line-stop-mesin-list"></div></div><div id="line-stop-non-mesin-section" style="display:none"><h4 class="font-bold mt-4 mb-2">⚠️ Line Stop Non Mesin</h4><div id="line-stop-non-mesin-list"></div></div><div id="minor-stop-section" style="display:none"><h4 class="font-bold mt-4 mb-2">⏸️ Minor Stop</h4><div id="minor-stop-list"></div></div><div class="filter-section mt-4"><div><label>Actual Output</label><input type="number" id="input-output" class="input-field" oninput="updateCalculations()"></div><div><label>Reject</label><input type="number" id="input-reject" value="0" class="input-field" oninput="updateCalculations()"></div></div><div id="calculated-results" style="display:none" class="bg-secondary p-4 rounded-lg my-4"><h4 class="font-bold mb-3">🧮 Hasil Perhitungan</h4><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px"><div><div class="text-sm text-secondary">Availability</div><div id="calc-a-actual" class="text-2xl font-bold">0%</div></div><div><div class="text-sm text-secondary">Performance</div><div id="calc-p" class="text-2xl font-bold">0%</div></div><div><div class="text-sm text-secondary">Quality</div><div id="calc-q" class="text-2xl font-bold">0%</div></div><div><div class="text-sm text-secondary">OEE Actual</div><div id="calc-oee-actual" class="text-2xl font-bold">0%</div></div></div></div><div><label>Catatan</label><textarea id="input-notes" rows="2" class="input-field"></textarea></div><div class="flex gap-4 mt-4"><button class="btn btn-primary" onclick="saveOEEData(false)">💾 Simpan</button>${editMode?`<button class="btn btn-primary" onclick="saveOEEData(true)">🔄 Update</button>`:''}<button class="btn btn-secondary" onclick="resetInputForm()">Reset</button></div></div></div>`; }
         
-        function toggleODT(id) { 
-            let cb = document.getElementById(`odt-check-${id}`); 
-            let inp = document.getElementById(`odt-time-${id}`); 
-            if(inp) inp.disabled = !cb.checked; 
-            updateCalculations(); 
-        }
+        function cancelEdit(){ editMode=false; editingRecordId=null; resetInputForm(); showToast('Edit mode cancelled','success'); renderApp(); }
+        function openAddMachineModal(){ showToast('Tambah mesin - Hubungi admin','info'); }
+        function editMachine(id){ showToast('Edit mesin - Hubungi admin','info'); }
+        function confirmDeleteMachine(id,name){ showToast(`Hapus ${name} - Konfirmasi admin`,'info'); }
         
-        function toggleLineStopMesin(id) { 
-            let d = document.getElementById(`lsm-details-${id}`); 
-            if(d) d.style.display = document.getElementById(`lsm-check-${id}`).checked ? 'block' : 'none'; 
-            updateCalculations(); 
-        }
+        function renderApp(){ let app=document.getElementById('app-wrapper'); let header=`<div style="background:linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); padding:24px"><div class="container-main"><h1 style="color:white;font-size:28px;font-weight:900">${defaultConfig.system_title}</h1><p style="color:white">${defaultConfig.company_name}</p><p style="color:white;font-size:12px">${new Date().toLocaleDateString('id-ID',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</p></div></div>`; let nav=`<div class="container-main"><div class="nav-tabs"><button class="nav-tab ${currentPage==='dashboard'?'active':''}" onclick="navigateTo('dashboard')">📊 Dashboard</button><button class="nav-tab ${currentPage==='input'?'active':''}" onclick="navigateTo('input')">✏️ Input</button><button class="nav-tab ${currentPage==='management'?'active':''}" onclick="navigateTo('management')">⚙️ Management</button></div></div>`; let content=''; if(currentPage==='dashboard') content=renderDashboard(); else if(currentPage==='input') content=renderInputPage(); else if(currentPage==='management') content=isManagementUnlocked?renderManagementPage():renderManagementLogin(); app.innerHTML=header+nav+content; if(currentPage==='dashboard') setTimeout(renderCharts,100); }
         
-        function toggleLineStopNonMesin(id) { 
-            let d = document.getElementById(`lsnm-details-${id}`); 
-            if(d) d.style.display = document.getElementById(`lsnm-check-${id}`).checked ? 'block' : 'none'; 
-            updateCalculations(); 
-        }
+        async function init(){ let theme=localStorage.getItem('oee-theme')||'light'; document.documentElement.setAttribute('data-theme',theme); document.getElementById('theme-toggle-btn').textContent=theme==='dark'?'☀️':'🌙'; await loadMachines(); await loadOEERecords(); renderApp(); setInterval(async()=>{ await loadOEERecords(); if(currentPage==='dashboard') renderCharts(); },3600000); }
         
-        function toggleMinorStop(id) { 
-            let d = document.getElementById(`ms-details-${id}`); 
-            if(d) d.style.display = document.getElementById(`ms-check-${id}`).checked ? 'block' : 'none'; 
-        }
-        
-        function updateCalculations() { 
-            let shift = document.getElementById('input-shift')?.value; 
-            if(!currentMachineData || !shift) return; 
-            
-            let odtTotal = 0; 
-            if(currentMachineDetails?.odt) {
-                currentMachineDetails.odt.forEach(o => { 
-                    let cb = document.getElementById(`odt-check-${o.id}`); 
-                    if(cb?.checked) { 
-                        let val = parseFloat(document.getElementById(`odt-time-${o.id}`)?.value) || 0; 
-                        odtTotal += Math.min(val, o.standard_time); 
-                    } 
-                });
-            }
-            let lsmTotal = 0; 
-            if(currentMachineDetails?.lineStopMesin) {
-                currentMachineDetails.lineStopMesin.forEach(ls => { 
-                    let cb = document.getElementById(`lsm-check-${ls.id}`); 
-                    if(cb?.checked) lsmTotal += parseFloat(document.getElementById(`lsm-duration-${ls.id}`)?.value) || 0; 
-                });
-            }
-            let lsnmTotal = 0; 
-            if(currentMachineDetails?.lineStopNonMesin) {
-                currentMachineDetails.lineStopNonMesin.forEach(ls => { 
-                    let cb = document.getElementById(`lsnm-check-${ls.id}`); 
-                    if(cb?.checked) lsnmTotal += parseFloat(document.getElementById(`lsnm-duration-${ls.id}`)?.value) || 0; 
-                });
-            }
-            
-            let shiftMin = SHIFTS[shift]?.minutes || 0;
-            let availTime = shiftMin - odtTotal - lsmTotal - lsnmTotal;
-            let target = currentMachineData.target_per_minute || 0;
-            let output = parseFloat(document.getElementById('input-output')?.value) || 0;
-            let reject = parseFloat(document.getElementById('input-reject')?.value) || 0;
-            let performance = target > 0 ? ((output) / (availTime * target)) * 100 : 100;
-            let quality = output > 0 ? ((output - reject) / output) * 100 : 100;
-            let availActual = availTime > 0 ? ((availTime) / (shiftMin - odtTotal)) * 100 : 0;
-            let oeeActual = (availActual * performance * quality) / 10000;
-            
-            let aActualEl = document.getElementById('calc-a-actual');
-            let pEl = document.getElementById('calc-p');
-            let qEl = document.getElementById('calc-q');
-            let oeeEl = document.getElementById('calc-oee-actual');
-            let resultsDiv = document.getElementById('calculated-results');
-            
-            if(aActualEl) aActualEl.innerHTML = `${availActual.toFixed(1)}%`;
-            if(pEl) pEl.innerHTML = `${performance.toFixed(1)}%`;
-            if(qEl) qEl.innerHTML = `${quality.toFixed(1)}%`;
-            if(oeeEl) oeeEl.innerHTML = `${oeeActual.toFixed(1)}%`;
-            if(resultsDiv) resultsDiv.style.display = 'block';
-        }
-        
-        function renderInputPage() { 
-            let editBanner = editMode ? `
-                <div style="background:rgba(245,158,11,0.1); padding:12px; border-radius:8px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-                    <span class="edit-mode-badge">✏️ EDIT MODE</span>
-                    <span style="color:var(--text-primary); font-size:14px;">Anda sedang mengedit data OEE. Klik "Update Data OEE" untuk menyimpan perubahan.</span>
-                    <button class="btn btn-secondary" style="padding:6px 12px;" onclick="cancelEdit()">Batal</button>
-                </div>
-            ` : '';
-            
-            return `<div class="container-main"><div class="card">${editBanner}<div class="card-header">✏️ Input OEE Data</div>
-                <div class="filter-section" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
-                    <div><label class="label">Tanggal *</label><input type="date" id="input-date" class="input-field" value="${new Date().toISOString().split('T')[0]}"></div>
-                    <div><label class="label">Shift *</label><select id="input-shift" class="input-field" onchange="updateCalculations()"><option value="">Select Shift</option>${Object.keys(SHIFTS).map(s => `<option value="${s}">${s} (${SHIFTS[s].start} - ${SHIFTS[s].end})</option>`).join('')}</select></div>
-                    <div><label class="label">Machine *</label><select id="input-machine" class="input-field" onchange="loadMachineData()"><option value="">Select Machine</option>${allMachines.map(m => `<option value="${m.id}">${m.machine_name} - ${m.area}</option>`).join('')}</select></div>
-                    <div><label class="label">PIC / Operator *</label><input type="text" id="input-pic" class="input-field" style="text-transform:uppercase"></div>
-                    <div><label class="label">Kode Produk *</label><input type="text" id="input-product" class="input-field" style="text-transform:uppercase"></div>
-                    <div><label class="label">Nomor Batch *</label><input type="text" id="input-batch" class="input-field" style="text-transform:uppercase"></div>
-                </div>
-                <div id="odt-section" style="display:none"><h4 style="font-weight:700; margin:16px 0 12px">⏱️ ODT (Operational Downtime)</h4><div id="odt-list"></div></div>
-                <div id="line-stop-mesin-section" style="display:none"><h4 style="font-weight:700; margin:16px 0 12px">🔧 Line Stop Mesin</h4><div id="line-stop-mesin-list"></div></div>
-                <div id="line-stop-non-mesin-section" style="display:none"><h4 style="font-weight:700; margin:16px 0 12px">⚠️ Line Stop Non Mesin</h4><div id="line-stop-non-mesin-list"></div></div>
-                <div id="minor-stop-section" style="display:none"><h4 style="font-weight:700; margin:16px 0 12px">⏸️ Minor Stop</h4><div id="minor-stop-list"></div></div>
-                <div class="filter-section" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); margin-top:16px">
-                    <div><label class="label">Actual Output</label><input type="number" id="input-output" min="0" class="input-field" oninput="updateCalculations()" placeholder="Required if target > 0"></div>
-                    <div><label class="label">Reject</label><input type="number" id="input-reject" value="0" min="0" class="input-field" oninput="updateCalculations()"></div>
-                </div>
-                <div id="calculated-results" style="display:none; background:var(--bg-secondary); padding:20px; border-radius:12px; margin:20px 0">
-                    <h4 style="font-weight:700; margin-bottom:16px">🧮 Calculated Results</h4>
-                    <div class="filter-section" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
-                        <div><div class="scorecard-label">Availability Actual</div><div id="calc-a-actual" style="font-size:24px; font-weight:700">0%</div></div>
-                        <div><div class="scorecard-label">Performance</div><div id="calc-p" style="font-size:24px; font-weight:700">0%</div></div>
-                        <div><div class="scorecard-label">Quality</div><div id="calc-q" style="font-size:24px; font-weight:700">0%</div></div>
-                        <div><div class="scorecard-label">OEE Actual</div><div id="calc-oee-actual" style="font-size:24px; font-weight:700">0%</div></div>
-                    </div>
-                </div>
-                <div><label class="label">Catatan</label><textarea id="input-notes" rows="3" class="input-field" placeholder="Additional notes (optional)"></textarea></div>
-                <div style="display:flex; gap:16px; margin-top:20px; flex-wrap:wrap">
-                    <button class="btn btn-primary" onclick="saveOEEData(false)">💾 Simpan Data OEE</button>
-                    ${editMode ? `<button class="btn btn-primary" onclick="saveOEEData(true)">🔄 Update Data OEE</button>` : ''}
-                    <button class="btn btn-secondary" onclick="resetInputForm()">🔄 Reset Form</button>
-                </div>
-            </div></div>`; 
-        }
-        
-        function cancelEdit() { 
-            editMode = false; 
-            editingRecordId = null; 
-            resetInputForm(); 
-            showToast('Edit mode cancelled', 'success'); 
-            renderApp(); 
-        }
-        
-        function openAddMachineModal() { 
-            showToast('Fitur tambah mesin - Hubungi admin untuk konfigurasi lengkap', 'info'); 
-        }
-        function editMachine(id) { 
-            showToast('Fitur edit mesin - Hubungi admin untuk konfigurasi lengkap', 'info'); 
-        }
-        function confirmDeleteMachine(id, name) { 
-            showToast(`Hapus mesin ${name} - Hubungi admin untuk konfirmasi`, 'info'); 
-        }
-        
-        function renderApp() { 
-            let app = document.getElementById('app-wrapper'); 
-            let header = `<div style="background:linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); padding:24px"><div class="container-main"><h1 style="color:white;font-size:28px;font-weight:900">${defaultConfig.system_title}</h1><p style="color:rgba(255,255,255,0.9)">${defaultConfig.company_name}</p><p style="color:white;font-size:12px;margin-top:4px">${new Date().toLocaleDateString('id-ID', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}</p></div></div>`; 
-            let nav = `<div class="container-main"><div class="nav-tabs"><button class="nav-tab ${currentPage === 'dashboard' ? 'active' : ''}" onclick="navigateTo('dashboard')">📊 Dashboard</button><button class="nav-tab ${currentPage === 'input' ? 'active' : ''}" onclick="navigateTo('input')">✏️ Input OEE</button><button class="nav-tab ${currentPage === 'management' ? 'active' : ''}" onclick="navigateTo('management')">⚙️ Management</button></div></div>`; 
-            let content = ''; 
-            if(currentPage === 'dashboard') content = renderDashboard(); 
-            else if(currentPage === 'input') content = renderInputPage(); 
-            else if(currentPage === 'management') content = isManagementUnlocked ? renderManagementPage() : renderManagementLogin(); 
-            app.innerHTML = header + nav + content; 
-            if(currentPage === 'dashboard') setTimeout(renderCharts, 100); 
-        }
-        
-        async function init() { 
-            let savedTheme = localStorage.getItem('oee-theme') || 'light'; 
-            document.documentElement.setAttribute('data-theme', savedTheme); 
-            document.getElementById('theme-toggle-btn').textContent = savedTheme === 'dark' ? '☀️' : '🌙'; 
-            showLoading('Menghubungkan ke database...'); 
-            await loadMachines(); 
-            await loadOEERecords(); 
-            hideLoading(); 
-            renderApp(); 
-            setInterval(async() => { await loadOEERecords(); if(currentPage === 'dashboard') renderCharts(); }, 3600000); 
-        }
-        
-        window.toggleTheme = toggleTheme;
-        window.navigateTo = navigateTo;
-        window.updateFilter = updateFilter;
-        window.unlockManagement = unlockManagement;
-        window.saveOEEData = saveOEEData;
-        window.resetInputForm = resetInputForm;
-        window.loadMachineData = loadMachineData;
-        window.toggleODT = toggleODT;
-        window.toggleLineStopMesin = toggleLineStopMesin;
-        window.toggleLineStopNonMesin = toggleLineStopNonMesin;
-        window.toggleMinorStop = toggleMinorStop;
-        window.updateCalculations = updateCalculations;
-        window.loadOEERecordForEdit = loadOEERecordForEdit;
-        window.searchEditRecords = searchEditRecords;
-        window.resetSearch = resetSearch;
-        window.openAddMachineModal = openAddMachineModal;
-        window.editMachine = editMachine;
-        window.confirmDeleteMachine = confirmDeleteMachine;
-        window.showRecordDetail = showRecordDetail;
-        window.cancelEdit = cancelEdit;
-        window.closeModal = closeModal;
-        
+        window.toggleTheme=toggleTheme; window.navigateTo=navigateTo; window.updateFilter=updateFilter; window.unlockManagement=unlockManagement; window.saveOEEData=saveOEEData; window.resetInputForm=resetInputForm; window.loadMachineData=loadMachineData; window.toggleODT=toggleODT; window.toggleLineStopMesin=toggleLineStopMesin; window.toggleLineStopNonMesin=toggleLineStopNonMesin; window.toggleMinorStop=toggleMinorStop; window.updateCalculations=updateCalculations; window.loadOEERecordForEdit=loadOEERecordForEdit; window.searchEditRecords=searchEditRecords; window.openAddMachineModal=openAddMachineModal; window.editMachine=editMachine; window.confirmDeleteMachine=confirmDeleteMachine; window.showRecordDetail=showRecordDetail; window.cancelEdit=cancelEdit; window.closeModal=closeModal;
         init();
     </script>
 </body>
