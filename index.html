@@ -53,7 +53,8 @@
         .loading-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 9999; flex-direction: column; gap: 16px; color: white; }
         .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; }
         .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px; margin-bottom: 24px; }
-        .chart-container { position: relative; height: 360px; margin-top: 16px; margin-bottom: 16px; }
+        .chart-container { position: relative; height: 420px; margin-top: 16px; margin-bottom: 16px; overflow-x: auto; }
+        .chart-container canvas { max-height: 380px; width: 100%; }
         .clickable-row { cursor: pointer; transition: 0.2s; }
         .clickable-row:hover { background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)) !important; color: white; }
         .status-good { color: var(--success); font-weight: 600; }
@@ -86,7 +87,6 @@
         let editMode = false;
         let editingRecordId = null;
         
-        // Helper function untuk mendapatkan tanggal awal dan akhir bulan
         function getStartOfMonth(date = new Date()) {
             let d = new Date(date);
             d.setDate(1);
@@ -206,7 +206,6 @@
             });
         }
         
-        // Fungsi untuk mendapatkan semua tanggal dalam rentang
         function getAllDatesInRange(startDate, endDate) {
             let dates = [];
             let currentDate = new Date(startDate);
@@ -266,7 +265,9 @@
                 
                 <div class="card">
                     <div class="card-header">📈 OEE per Hari (Periode Filter)</div>
-                    <div class="chart-container"><canvas id="daily-oee-chart"></canvas></div>
+                    <div class="chart-container" style="overflow-x: auto; overflow-y: hidden;">
+                        <canvas id="daily-oee-chart" style="min-width: ${Math.max(800, (new Date(filters.endDate) - new Date(filters.startDate)) / (1000*60*60*24) * 35)}px; height: 360px;"></canvas>
+                    </div>
                 </div>
                 
                 <div class="grid-2">
@@ -283,7 +284,7 @@
                     <div class="card-header">📋 OEE History <span style="font-size:12px;">(klik baris untuk detail)</span></div>
                     <div class="table-wrapper">
                         <table>
-                            <thead> <tr><th>Date</th><th>Shift</th><th>Machine</th><th>PIC</th><th>Output</th><th>A%</th><th>P%</th><th>Q%</th><th>OEE</th></tr> </thead>
+                            <thead><tr><th>Date</th><th>Shift</th><th>Machine</th><th>PIC</th><th>Output</th><th>A%</th><th>P%</th><th>Q%</th><th>OEE</th></tr></thead>
                             <tbody>${filtered.slice(0, 30).map(r => `<tr class="clickable-row" onclick='showRecordDetail(${JSON.stringify(r).replace(/'/g, "\\'")})'>
                                 <td class="wrap-text">${new Date(r.date).toLocaleDateString('id-ID')}</td>
                                 <td class="wrap-text">${r.shift}</td>
@@ -321,10 +322,8 @@
         function renderDailyChart(records) {
             let ctx = document.getElementById('daily-oee-chart'); if(!ctx) return;
             
-            // Dapatkan semua tanggal dalam rentang filter
             let allDates = getAllDatesInRange(filters.startDate, filters.endDate);
             
-            // Buat map untuk data OEE per tanggal (rata-rata jika multiple records dalam 1 hari)
             let dailyMap = new Map();
             records.forEach(r => { 
                 if(r.date && r.oee_actual) {
@@ -335,15 +334,17 @@
                 }
             });
             
-            // Buat array data untuk semua tanggal (yang tidak ada data = null)
             let dailyData = allDates.map(date => {
                 if(dailyMap.has(date)) {
                     return dailyMap.get(date).total / dailyMap.get(date).count;
                 }
-                return null; // null berarti tidak ada data
+                return null;
             });
             
-            let labels = allDates.map(d => new Date(d).toLocaleDateString('id-ID', { day:'2-digit', month:'2-digit' }));
+            let labels = allDates.map(d => {
+                let date = new Date(d);
+                return `${date.getDate()}/${date.getMonth()+1}`;
+            });
             
             if(chartInstances.daily) chartInstances.daily.destroy();
             
@@ -368,10 +369,18 @@
                 options: { 
                     responsive: true, 
                     maintainAspectRatio: false,
-                    layout: { padding: { top: 35, bottom: 15, left: 10, right: 10 } },
+                    layout: { padding: { top: 35, bottom: 25, left: 10, right: 30 } },
                     scales: { 
                         y: { beginAtZero: true, max: 100, title: { display: true, text: 'OEE (%)' } }, 
-                        x: { title: { display: true, text: 'Tanggal' }, ticks: { maxRotation: 45, minRotation: 45, autoSkip: true, maxTicksLimit: 15 } }
+                        x: { 
+                            title: { display: true, text: 'Tanggal' }, 
+                            ticks: { 
+                                maxRotation: 90, 
+                                minRotation: 45,
+                                autoSkip: false,
+                                font: { size: 10 }
+                            } 
+                        } 
                     }, 
                     plugins: { 
                         tooltip: { 
@@ -379,6 +388,7 @@
                                 label: (ctx) => ctx.raw !== null ? `OEE: ${ctx.raw.toFixed(1)}%` : 'Tidak ada data'
                             } 
                         },
+                        legend: { position: 'top' },
                         datalabels: {
                             anchor: function(context) { 
                                 let val = context.dataset.data[context.dataIndex];
@@ -390,13 +400,13 @@
                                 if(val === null) return false;
                                 return val >= 88 ? 'bottom' : 'top'; 
                             },
-                            offset: 8,
+                            offset: 6,
                             formatter: (v) => v !== null ? v.toFixed(1) + '%' : '',
-                            font: { weight: 'bold', size: 10 },
+                            font: { weight: 'bold', size: 9 },
                             color: '#333',
-                            backgroundColor: 'rgba(255,255,255,0.8)',
-                            padding: { left: 4, right: 4, top: 2, bottom: 2 },
-                            borderRadius: 4
+                            backgroundColor: 'rgba(255,255,255,0.85)',
+                            padding: { left: 3, right: 3, top: 2, bottom: 2 },
+                            borderRadius: 3
                         }
                     } 
                 } 
@@ -446,7 +456,7 @@
                                 let val = context.dataset.data[context.dataIndex];
                                 return val && val >= 88 ? 'bottom' : 'top';
                             },
-                            offset: 8, 
+                            offset: 6, 
                             formatter: (v) => v !== null ? v.toFixed(1) + '%' : '', 
                             font: { weight: 'bold', size: 10 }, 
                             color: '#333', 
@@ -495,7 +505,7 @@
         function renderManagementLogin() { return `<div class="container-main"><div class="card" style="max-width:500px;margin:60px auto;text-align:center"><div style="font-size:48px">🔒</div><h3>Management Access</h3><input type="password" id="mgmt-password" class="input-field my-3"><button class="btn btn-primary w-full" onclick="unlockManagement()">Unlock</button></div></div>`; }
         function unlockManagement() { if(document.getElementById('mgmt-password').value===MANAGEMENT_PASSWORD) { isManagementUnlocked=true; renderApp(); showToast('Management unlocked','success'); } else showToast('Wrong password','error'); }
         
-        function renderManagementPage() { return `<div class="container-main"><div class="card"><div class="card-header">⚙️ Machine Management <button class="btn btn-primary" onclick="openAddMachineModal()">➕ Add</button></div><div class="table-wrapper">\n<table><thead> <tr><th>Machine</th><th>Area</th><th>Target/min</th><th>PIC</th><th>Actions</th> </tr></thead><tbody>${allMachines.map(m=>`<tr><td><strong>${m.machine_name}</strong></td><td>${m.area}</td><td>${m.target_per_minute||0}</td><td>${m.pic||'-'}</td><td><button class="btn btn-secondary" onclick="editMachine('${m.id}')">Edit</button> <button class="btn btn-danger" onclick="confirmDeleteMachine('${m.id}')">Delete</button></td></tr>`).join('')||'<tr><td colspan="5">No machines</td></tr>'}</tbody></table></div></div><div class="card"><div class="card-header">📝 Edit OEE Data</div><div class="filter-section"><input type="date" id="search-date" class="input-field"><select id="search-shift" class="input-field"><option value="all">All Shift</option>${Object.keys(SHIFTS).map(s=>`<option>${s}</option>`)}</select><select id="search-machine" class="input-field"><option value="all">All Machine</option>${[...new Set(allOEERecords.map(r=>r.machine_name))].map(m=>`<option>${m}</option>`)}</select><button class="btn btn-primary" onclick="searchEditRecords()">Search</button></div><div id="edit-records-list" class="table-wrapper mt-4"></div></div></div>`; }
+        function renderManagementPage() { return `<div class="container-main"><div class="card"><div class="card-header">⚙️ Machine Management <button class="btn btn-primary" onclick="openAddMachineModal()">➕ Add</button></div><div class="table-wrapper">\n<table><thead><tr><th>Machine</th><th>Area</th><th>Target/min</th><th>PIC</th><th>Actions</th></tr></thead><tbody>${allMachines.map(m=>`<tr><td><strong>${m.machine_name}</strong></td><td>${m.area}</td><td>${m.target_per_minute||0}</td><td>${m.pic||'-'}</td><td><button class="btn btn-secondary" onclick="editMachine('${m.id}')">Edit</button> <button class="btn btn-danger" onclick="confirmDeleteMachine('${m.id}')">Delete</button></td></tr>`).join('')||'<tr><td colspan="5">No machines</td></tr>'}</tbody></table></div></div><div class="card"><div class="card-header">📝 Edit OEE Data</div><div class="filter-section"><input type="date" id="search-date" class="input-field"><select id="search-shift" class="input-field"><option value="all">All Shift</option>${Object.keys(SHIFTS).map(s=>`<option>${s}</option>`)}</select><select id="search-machine" class="input-field"><option value="all">All Machine</option>${[...new Set(allOEERecords.map(r=>r.machine_name))].map(m=>`<option>${m}</option>`)}</select><button class="btn btn-primary" onclick="searchEditRecords()">Search</button></div><div id="edit-records-list" class="table-wrapper mt-4"></div></div></div>`; }
         
         async function searchEditRecords() { let date=document.getElementById('search-date')?.value, shift=document.getElementById('search-shift')?.value, machine=document.getElementById('search-machine')?.value; let list=allOEERecords.filter(r=>(!date||r.date===date)&&(shift==='all'||r.shift===shift)&&(machine==='all'||r.machine_name===machine)); document.getElementById('edit-records-list').innerHTML=`<table><thead><tr><th>Date</th><th>Shift</th><th>Machine</th><th>PIC</th><th>OEE</th><th>Action</th></tr></thead><tbody>${list.map(r=>`<tr><td>${r.date}</td><td>${r.shift}</td><td>${r.machine_name}</td><td>${r.pic}</td><td>${(r.oee_actual||0).toFixed(1)}%</td><td><button class="btn btn-secondary" onclick="loadOEERecordForEdit('${r.id}')">Edit</button></td></tr>`).join('')||'<tr><td colspan="6">No data</td></tr>'}</tbody></table>`; }
         
