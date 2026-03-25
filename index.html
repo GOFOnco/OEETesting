@@ -495,13 +495,6 @@
                         pointBorderColor: '#fff',
                         pointRadius: 6,
                         pointHoverRadius: 8
-                    }, { 
-                        label: 'Target 88%', 
-                        data: Array(sortedDates.length).fill(88), 
-                        borderColor: '#10b981', 
-                        borderDash: [5, 5], 
-                        pointRadius: 0,
-                        fill: false
                     }] 
                 }, 
                 options: { 
@@ -562,13 +555,6 @@
                         fill: true,
                         pointBackgroundColor: avg.map(v => v && v >= 88 ? '#10b981' : '#ef4444'), 
                         pointRadius: 5 
-                    }, { 
-                        label: 'Target 88%', 
-                        data: Array(12).fill(88), 
-                        borderColor: '#10b981', 
-                        borderDash: [5, 5], 
-                        pointRadius: 0,
-                        fill: false
                     }] 
                 }, 
                 options: { 
@@ -615,14 +601,6 @@
                         data: values, 
                         backgroundColor: values.map(v => v >= 88 ? '#10b981' : '#ef4444'),
                         borderRadius: 8
-                    }, { 
-                        label: 'Target 88%', 
-                        data: Array(labels.length).fill(88), 
-                        type: 'line', 
-                        borderColor: '#10b981', 
-                        borderDash: [5, 5], 
-                        pointRadius: 0,
-                        fill: false
                     }] 
                 }, 
                 options: { 
@@ -772,7 +750,7 @@
                     <div class="card-header">⚙️ Machine Management <button class="btn btn-primary" onclick="openAddMachineModal()">➕ Add Machine</button></div>
                     <div class="table-wrapper">
                          <table>
-                            <thead><tr><th>Machine Name</th><th>Area</th><th>Target/Min</th><th>PIC</th><th>Actions</th></tr></thead>
+                            <thead> <tr><th>Machine Name</th><th>Area</th><th>Target/Min</th><th>PIC</th><th>Actions</th></tr> </thead>
                             <tbody>${allMachines.map(m => `
                                 <tr>
                                     <td><strong>${m.machine_name}</strong></td>
